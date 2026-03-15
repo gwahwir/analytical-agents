@@ -19,6 +19,18 @@ services:
       retries: 10
       start_period: 10s
 
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   # ── Echo Agent ─────────────────────────────────────────────────────────────
   echo-agent:
     build:
@@ -36,6 +48,9 @@ services:
       start_period: 10s
 
   # ── Control Plane ──────────────────────────────────────────────────────────
+  # Scale with: docker compose up --scale echo-agent=3
+  # Add more agent types via AGENT_URLS:
+  #   echo-agent@http://echo-agent:8001,summariser@http://summariser:8002
   control-plane:
     build:
       context: .
@@ -44,12 +59,15 @@ services:
       - "8000:8000"
     environment:
       - LOG_LEVEL=INFO
-      - AGENT_URLS=http://echo-agent:8001
+      - AGENT_URLS=echo-agent@http://echo-agent:8001
       - DATABASE_URL=postgresql://mc:mc_password@postgres:5432/missioncontrol
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       echo-agent:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/agents').raise_for_status()"]
