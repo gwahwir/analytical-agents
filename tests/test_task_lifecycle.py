@@ -1,139 +1,193 @@
 """Integration tests for the full task lifecycle.
 
 All A2A HTTP calls are intercepted with pytest-httpx so no real agent
-process is required.
+process is required. Dispatch is asynchronous (202) — tests use
+wait_for_task() to poll until a terminal state is reached.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-import pytest
+
 import httpx
+import pytest
 from pytest_httpx import HTTPXMock
 
-from tests.conftest import FAKE_AGENT_ID, FAKE_AGENT_URL, make_a2a_response
-
-TASK_ID = "task-abc-123"
-
-
-def _a2a_rpc_response(task_id: str, text: str, state: str = "completed") -> bytes:
-    """Encode a JSON-RPC 2.0 response wrapping an A2A task result."""
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": make_a2a_response(task_id, text, state),
-    }
-    return json.dumps(payload).encode()
+from tests.conftest import (
+    FAKE_AGENT_ID,
+    FAKE_AGENT_URL,
+    a2a_cancel_response,
+    a2a_rpc,
+    a2a_rpc_callback,
+    wait_for_task,
+)
 
 
 # ---------------------------------------------------------------------------
-# Dispatch
+# Dispatch — 202 Accepted
 # ---------------------------------------------------------------------------
 
-def test_dispatch_task_success(client, httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
+async def test_dispatch_returns_202_immediately(client, httpx_mock: HTTPXMock):
+    httpx_mock.add_callback(
+        a2a_rpc_callback("hello world"),
         url=f"{FAKE_AGENT_URL}/",
-        method="POST",
-        content=_a2a_rpc_response(TASK_ID, "hello world"),
-        headers={"Content-Type": "application/json"},
     )
-
-    resp = client.post(
-        f"/agents/{FAKE_AGENT_ID}/tasks",
-        json={"text": "hello world"},
-    )
-    assert resp.status_code == 200
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello world"})
+    assert resp.status_code == 202
     data = resp.json()
-    assert data["task_id"] == TASK_ID
-    assert data["state"] == "completed"
-    assert "HELLO WORLD" in data["output_text"]
+    assert "task_id" in data
+    assert data["state"] == "submitted"
+    assert data["agent_id"] == FAKE_AGENT_ID
+    assert data["instance_url"] == FAKE_AGENT_URL
 
 
-def test_dispatch_task_agent_not_found(client):
-    resp = client.post("/agents/ghost-agent/tasks", json={"text": "ping"})
+async def test_dispatch_task_completes(client, httpx_mock: HTTPXMock):
+    httpx_mock.add_callback(a2a_rpc_callback("hello world"), url=f"{FAKE_AGENT_URL}/")
+
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello world"})
+    task_id = resp.json()["task_id"]
+
+    result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
+    assert result["state"] == "completed"
+    assert "HELLO WORLD" in result["output_text"]
+
+
+async def test_dispatch_task_agent_not_found(client):
+    resp = await client.post("/agents/ghost-agent/tasks", json={"text": "ping"})
     assert resp.status_code == 404
 
 
-def test_dispatch_task_agent_offline(client, registry):
+async def test_dispatch_task_no_online_instances(client, registry):
     from control_plane.registry import AgentStatus
-    registry._agents[FAKE_AGENT_ID].status = AgentStatus.OFFLINE
-    resp = client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "ping"})
+    registry._types[FAKE_AGENT_ID].instances[0].status = AgentStatus.OFFLINE
+
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "ping"})
     assert resp.status_code == 503
-    # Restore for other tests
-    registry._agents[FAKE_AGENT_ID].status = AgentStatus.ONLINE
+
+    # Restore
+    registry._types[FAKE_AGENT_ID].instances[0].status = AgentStatus.ONLINE
 
 
-def test_dispatch_task_agent_unreachable(client, httpx_mock: HTTPXMock):
+async def test_dispatch_task_agent_unreachable_marks_failed(client, httpx_mock: HTTPXMock):
     httpx_mock.add_exception(
         httpx.ConnectError("connection refused"),
         url=f"{FAKE_AGENT_URL}/",
-        method="POST",
     )
-    resp = client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "ping"})
-    assert resp.status_code == 502
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "ping"})
+    assert resp.status_code == 202
+    task_id = resp.json()["task_id"]
+
+    result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
+    assert result["state"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Active-task counter on instance
+# ---------------------------------------------------------------------------
+
+async def test_active_tasks_decrements_after_completion(client, registry, httpx_mock: HTTPXMock):
+    httpx_mock.add_callback(a2a_rpc_callback("counter test"), url=f"{FAKE_AGENT_URL}/")
+
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "counter test"})
+    task_id = resp.json()["task_id"]
+    await wait_for_task(client, FAKE_AGENT_ID, task_id)
+
+    instance = registry._types[FAKE_AGENT_ID].instances[0]
+    assert instance.active_tasks == 0
+
+
+# ---------------------------------------------------------------------------
+# Load balancing — round-robin across two instances
+# ---------------------------------------------------------------------------
+
+async def test_least_connections_dispatch(registry, task_store, broker, httpx_mock: HTTPXMock):
+    """Two instances: the one with fewer active tasks should be picked."""
+    from control_plane.registry import AgentInstance, AgentStatus, AgentType
+
+    inst_a = AgentInstance(url="http://echo-a:8001", status=AgentStatus.ONLINE, active_tasks=3)
+    inst_b = AgentInstance(url="http://echo-b:8001", status=AgentStatus.ONLINE, active_tasks=0)
+    registry._types[FAKE_AGENT_ID].instances = [inst_a, inst_b]
+
+    picked = registry.pick_instance(FAKE_AGENT_ID)
+    assert picked is inst_b
 
 
 # ---------------------------------------------------------------------------
 # Fetch
 # ---------------------------------------------------------------------------
 
-def test_get_task_after_dispatch(client, httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=f"{FAKE_AGENT_URL}/",
-        method="POST",
-        content=_a2a_rpc_response(TASK_ID, "fetch me"),
-        headers={"Content-Type": "application/json"},
-    )
-    client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "fetch me"})
+async def test_get_task_after_dispatch(client, httpx_mock: HTTPXMock):
+    httpx_mock.add_callback(a2a_rpc_callback("fetch me"), url=f"{FAKE_AGENT_URL}/")
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "fetch me"})
+    task_id = resp.json()["task_id"]
+    await wait_for_task(client, FAKE_AGENT_ID, task_id)
 
-    resp = client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{TASK_ID}")
+    resp = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
     assert resp.status_code == 200
-    assert resp.json()["task_id"] == TASK_ID
+    assert resp.json()["task_id"] == task_id
 
 
-def test_get_task_not_found(client):
-    resp = client.get(f"/agents/{FAKE_AGENT_ID}/tasks/no-such-task")
+async def test_get_task_not_found(client):
+    resp = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/no-such-task")
     assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# Cancel
+# Cancel — routed to the owning instance
 # ---------------------------------------------------------------------------
 
-def test_cancel_task(client, httpx_mock: HTTPXMock):
-    # First dispatch to create the record
-    httpx_mock.add_response(
-        url=f"{FAKE_AGENT_URL}/",
-        method="POST",
-        content=_a2a_rpc_response(TASK_ID, "to cancel", state="working"),
-        headers={"Content-Type": "application/json"},
-    )
-    client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "to cancel"})
+async def test_cancel_task(client, httpx_mock: HTTPXMock):
+    # Dispatch — agent returns "working" so the record stays in a non-terminal state
+    httpx_mock.add_callback(a2a_rpc_callback("to cancel", state="working"), url=f"{FAKE_AGENT_URL}/")
+    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "to cancel"})
+    task_id = resp.json()["task_id"]
 
-    # Mock the cancel RPC call
-    cancel_payload = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {"id": TASK_ID, "status": {"state": "canceled"}},
-    }).encode()
-    httpx_mock.add_response(
-        url=f"{FAKE_AGENT_URL}/",
-        method="POST",
-        content=cancel_payload,
-        headers={"Content-Type": "application/json"},
-    )
+    # Wait until _run_task has stored the "working" state (not just "submitted")
+    deadline = asyncio.get_event_loop().time() + 5.0
+    while asyncio.get_event_loop().time() < deadline:
+        r = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+        if r.status_code == 200 and r.json()["state"] == "working":
+            break
+        await asyncio.sleep(0.05)
 
-    resp = client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/{TASK_ID}")
+    # Cancel (second POST to the agent URL)
+    def cancel_callback(request: httpx.Request) -> httpx.Response:
+        return a2a_cancel_response(task_id)
+    httpx_mock.add_callback(cancel_callback, url=f"{FAKE_AGENT_URL}/")
+
+    resp = await client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
     assert resp.status_code == 200
     assert resp.json()["status"] == "cancelled"
 
-    # Verify state updated in store
-    get_resp = client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{TASK_ID}")
-    assert get_resp.json()["state"] == "canceled"
+    resp = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+    assert resp.json()["state"] == "canceled"
 
 
-def test_cancel_task_not_found(client):
-    resp = client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/ghost-task")
+async def test_cancel_routes_to_instance_url(client, task_store, httpx_mock: HTTPXMock):
+    """Cancel must hit the instance_url stored on the task, not just any instance."""
+    from control_plane.task_store import TaskRecord, TaskState
+
+    task_id = "sticky-task-001"
+    record = TaskRecord(
+        task_id=task_id,
+        agent_id=FAKE_AGENT_ID,
+        instance_url=FAKE_AGENT_URL,
+        state=TaskState.WORKING,
+        input_text="sticky",
+    )
+    await task_store.save(record)
+
+    def cancel_callback(request: httpx.Request) -> httpx.Response:
+        return a2a_cancel_response(task_id)
+    httpx_mock.add_callback(cancel_callback, url=f"{FAKE_AGENT_URL}/")
+
+    resp = await client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+    assert resp.status_code == 200
+
+
+async def test_cancel_task_not_found(client):
+    resp = await client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/ghost-task")
     assert resp.status_code == 404
 
 
@@ -141,33 +195,28 @@ def test_cancel_task_not_found(client):
 # Global history
 # ---------------------------------------------------------------------------
 
-def test_list_all_tasks(client, httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url=f"{FAKE_AGENT_URL}/",
-        method="POST",
-        content=_a2a_rpc_response("t1", "first"),
-        headers={"Content-Type": "application/json"},
-    )
-    httpx_mock.add_response(
-        url=f"{FAKE_AGENT_URL}/",
-        method="POST",
-        content=_a2a_rpc_response("t2", "second"),
-        headers={"Content-Type": "application/json"},
-    )
-    client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "first"})
-    client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "second"})
+async def test_list_all_tasks(client, httpx_mock: HTTPXMock):
+    httpx_mock.add_callback(a2a_rpc_callback("first"), url=f"{FAKE_AGENT_URL}/")
+    httpx_mock.add_callback(a2a_rpc_callback("second"), url=f"{FAKE_AGENT_URL}/")
 
-    resp = client.get("/tasks")
+    r1 = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "first"})
+    r2 = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "second"})
+
+    await wait_for_task(client, FAKE_AGENT_ID, r1.json()["task_id"])
+    await wait_for_task(client, FAKE_AGENT_ID, r2.json()["task_id"])
+
+    resp = await client.get("/tasks")
     assert resp.status_code == 200
     ids = {t["task_id"] for t in resp.json()}
-    assert {"t1", "t2"}.issubset(ids)
+    assert r1.json()["task_id"] in ids
+    assert r2.json()["task_id"] in ids
 
 
 # ---------------------------------------------------------------------------
 # Metrics endpoint
 # ---------------------------------------------------------------------------
 
-def test_metrics_endpoint(client):
-    resp = client.get("/metrics")
+async def test_metrics_endpoint(client):
+    resp = await client.get("/metrics")
     assert resp.status_code == 200
     assert b"mc_tasks_dispatched_total" in resp.content
