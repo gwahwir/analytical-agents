@@ -1,12 +1,16 @@
 """Control Plane configuration.
 
-Agent URLs are read from the ``AGENT_URLS`` environment variable as a
-comma-separated list, e.g.:
+All settings are read from environment variables:
 
-    AGENT_URLS=http://echo-agent:8001,http://summary-agent:8002
+    AGENT_URLS    Comma-separated list of agent base URLs.
+                  Defaults to http://localhost:8001 for local development.
 
-Falls back to ``http://localhost:8001`` (the local echo agent) when the
-variable is not set, so local development works without any extra config.
+    DATABASE_URL  asyncpg-compatible PostgreSQL DSN, e.g.:
+                  postgresql://user:password@host:5432/dbname
+                  When not set the control plane uses an in-memory store.
+
+    LOG_LEVEL     Logging verbosity (DEBUG / INFO / WARNING / ERROR).
+                  Defaults to INFO.
 """
 
 from __future__ import annotations
@@ -26,16 +30,20 @@ class ControlPlaneSettings(BaseModel):
     port: int = 8000
     agents: list[AgentEndpoint] = []
     health_poll_interval_seconds: int = 30
+    database_url: str | None = None
 
 
 def load_settings() -> ControlPlaneSettings:
+    # Agent URLs
     raw = os.getenv("AGENT_URLS", "http://localhost:8001")
     agents = []
     for url in raw.split(","):
         url = url.strip()
         if url:
-            # Derive a slug name from the URL host, e.g. "echo-agent"
             host = url.rstrip("/").rsplit(":", 1)[0].rsplit("/", 1)[-1]
             agents.append(AgentEndpoint(url=url, name=host))
 
-    return ControlPlaneSettings(agents=agents)
+    return ControlPlaneSettings(
+        agents=agents,
+        database_url=os.getenv("DATABASE_URL"),
+    )

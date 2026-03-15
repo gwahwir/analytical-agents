@@ -18,7 +18,7 @@ from control_plane.metrics import (
     tasks_failed,
 )
 from control_plane.registry import AgentRegistry, AgentStatus
-from control_plane.task_store import TaskRecord, TaskState, TaskStore
+from control_plane.task_store import PostgresTaskStore, TaskRecord, TaskState, TaskStore
 
 logger = get_logger(__name__)
 
@@ -26,11 +26,11 @@ router = APIRouter()
 
 # Injected by the app factory
 _registry: AgentRegistry | None = None
-_task_store: TaskStore | None = None
+_task_store: TaskStore | PostgresTaskStore | None = None
 _ws_subscribers: dict[str, list[WebSocket]] = {}
 
 
-def init_routes(registry: AgentRegistry, task_store: TaskStore) -> None:
+def init_routes(registry: AgentRegistry, task_store: TaskStore | PostgresTaskStore) -> None:
     global _registry, _task_store
     _registry = registry
     _task_store = task_store
@@ -137,7 +137,7 @@ async def dispatch_task(agent_id: str, req: TaskRequest) -> TaskResponse:
         output_text=output,
         a2a_task=result,
     )
-    _task_store.save(record)
+    await _task_store.save(record)
     await _notify_ws(task_id, record.to_dict())
 
     return TaskResponse(
@@ -152,7 +152,7 @@ async def dispatch_task(agent_id: str, req: TaskRequest) -> TaskResponse:
 @router.get("/agents/{agent_id}/tasks/{task_id}")
 async def get_task(agent_id: str, task_id: str) -> dict[str, Any]:
     assert _task_store is not None
-    record = _task_store.get(task_id)
+    record = await _task_store.get(task_id)
     if not record or record.agent_id != agent_id:
         raise HTTPException(404, "Task not found")
     return record.to_dict()
@@ -166,7 +166,7 @@ async def cancel_task_endpoint(agent_id: str, task_id: str) -> dict[str, Any]:
     if not agent:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
 
-    record = _task_store.get(task_id)
+    record = await _task_store.get(task_id)
     if not record or record.agent_id != agent_id:
         raise HTTPException(404, "Task not found")
 
@@ -182,7 +182,7 @@ async def cancel_task_endpoint(agent_id: str, task_id: str) -> dict[str, Any]:
         await client.close()
 
     record.state = TaskState.CANCELED
-    _task_store.save(record)
+    await _task_store.save(record)
     tasks_cancelled.labels(agent_id=agent_id).inc()
     await _notify_ws(task_id, record.to_dict())
 
@@ -193,7 +193,7 @@ async def cancel_task_endpoint(agent_id: str, task_id: str) -> dict[str, Any]:
 @router.get("/tasks")
 async def list_all_tasks() -> list[dict[str, Any]]:
     assert _task_store is not None
-    return [t.to_dict() for t in _task_store.list_all()]
+    return [t.to_dict() for t in await _task_store.list_all()]
 
 
 # ------------------------------------------------------------------
@@ -212,7 +212,7 @@ async def ws_task_updates(websocket: WebSocket, task_id: str) -> None:
 
     try:
         assert _task_store is not None
-        record = _task_store.get(task_id)
+        record = await _task_store.get(task_id)
         if record:
             await websocket.send_json(record.to_dict())
 

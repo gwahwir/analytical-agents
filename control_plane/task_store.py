@@ -1,16 +1,26 @@
-"""In-memory task store for the Control Plane.
+"""Task store for the Control Plane.
 
-Tracks tasks dispatched through the control plane, their state, and history.
-Designed to be swapped for a Redis or Postgres-backed store later.
+Defines the shared data model (TaskState, TaskRecord) and two
+implementations:
+
+* ``TaskStore``   — in-memory (default, no dependencies)
+* ``PostgresTaskStore`` — asyncpg-backed (enabled via DATABASE_URL)
+
+Both share the same async interface so routes.py is backend-agnostic.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+
+# ---------------------------------------------------------------------------
+# Shared data model
+# ---------------------------------------------------------------------------
 
 class TaskState(str, Enum):
     SUBMITTED = "submitted"
@@ -45,28 +55,140 @@ class TaskRecord:
             "updated_at": self.updated_at,
         }
 
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> TaskRecord:
+        """Reconstruct a TaskRecord from a database row dict."""
+        a2a_task = row.get("a2a_task", "{}")
+        if isinstance(a2a_task, str):
+            a2a_task = json.loads(a2a_task)
+        return cls(
+            task_id=row["task_id"],
+            agent_id=row["agent_id"],
+            state=TaskState(row["state"]),
+            input_text=row.get("input_text", ""),
+            output_text=row.get("output_text", ""),
+            created_at=float(row["created_at"]),
+            updated_at=float(row["updated_at"]),
+            a2a_task=a2a_task,
+        )
+
+
+# ---------------------------------------------------------------------------
+# In-memory implementation (default)
+# ---------------------------------------------------------------------------
 
 class TaskStore:
-    """In-memory task store. Swap for Redis/Postgres later."""
+    """In-memory task store. No external dependencies.
+
+    Used when DATABASE_URL is not set. All state is lost on restart.
+    """
 
     def __init__(self) -> None:
         self._tasks: dict[str, TaskRecord] = {}
 
-    def save(self, record: TaskRecord) -> None:
+    async def save(self, record: TaskRecord) -> None:
         record.updated_at = time.time()
         self._tasks[record.task_id] = record
 
-    def get(self, task_id: str) -> TaskRecord | None:
+    async def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
 
-    def list_all(self) -> list[TaskRecord]:
+    async def list_all(self) -> list[TaskRecord]:
         return sorted(
             self._tasks.values(), key=lambda t: t.created_at, reverse=True
         )
 
-    def list_by_agent(self, agent_id: str) -> list[TaskRecord]:
-        return [
-            t
-            for t in self.list_all()
-            if t.agent_id == agent_id
-        ]
+    async def list_by_agent(self, agent_id: str) -> list[TaskRecord]:
+        return [t for t in await self.list_all() if t.agent_id == agent_id]
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL implementation
+# ---------------------------------------------------------------------------
+
+_CREATE_TABLE = """
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id     TEXT PRIMARY KEY,
+    agent_id    TEXT        NOT NULL,
+    state       TEXT        NOT NULL,
+    input_text  TEXT        NOT NULL DEFAULT '',
+    output_text TEXT        NOT NULL DEFAULT '',
+    created_at  FLOAT8      NOT NULL,
+    updated_at  FLOAT8      NOT NULL,
+    a2a_task    TEXT        NOT NULL DEFAULT '{}'
+);
+"""
+
+_UPSERT = """
+INSERT INTO tasks
+    (task_id, agent_id, state, input_text, output_text, created_at, updated_at, a2a_task)
+VALUES
+    ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (task_id) DO UPDATE SET
+    state       = EXCLUDED.state,
+    output_text = EXCLUDED.output_text,
+    updated_at  = EXCLUDED.updated_at,
+    a2a_task    = EXCLUDED.a2a_task;
+"""
+
+
+class PostgresTaskStore:
+    """asyncpg-backed task store.
+
+    Enabled automatically when DATABASE_URL is set in the environment.
+    Call ``await store.init(database_url)`` during app startup and
+    ``await store.close()`` during shutdown.
+    """
+
+    def __init__(self) -> None:
+        self._pool = None
+
+    async def init(self, database_url: str) -> None:
+        import asyncpg  # imported lazily so the rest of the app works without it
+
+        self._pool = await asyncpg.create_pool(dsn=database_url, min_size=2, max_size=10)
+        async with self._pool.acquire() as conn:
+            await conn.execute(_CREATE_TABLE)
+
+    async def close(self) -> None:
+        if self._pool:
+            await self._pool.close()
+
+    async def save(self, record: TaskRecord) -> None:
+        record.updated_at = time.time()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                _UPSERT,
+                record.task_id,
+                record.agent_id,
+                record.state.value,
+                record.input_text,
+                record.output_text,
+                record.created_at,
+                record.updated_at,
+                json.dumps(record.a2a_task),
+            )
+
+    async def get(self, task_id: str) -> TaskRecord | None:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM tasks WHERE task_id = $1", task_id
+            )
+        if row is None:
+            return None
+        return TaskRecord.from_row(dict(row))
+
+    async def list_all(self) -> list[TaskRecord]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM tasks ORDER BY created_at DESC"
+            )
+        return [TaskRecord.from_row(dict(r)) for r in rows]
+
+    async def list_by_agent(self, agent_id: str) -> list[TaskRecord]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM tasks WHERE agent_id = $1 ORDER BY created_at DESC",
+                agent_id,
+            )
+        return [TaskRecord.from_row(dict(r)) for r in rows]
