@@ -1,8 +1,7 @@
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import { ReactFlow, Background, Controls } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Text, Alert } from "@mantine/core";
-import { fetchGraph } from "../hooks/useApi";
+import { Text } from "@mantine/core";
 import { computeLayout } from "./graph/layout";
 import AgentGroupNode from "./graph/AgentGroupNode";
 import GraphNode from "./graph/GraphNode";
@@ -12,28 +11,11 @@ const nodeTypes = {
   graphNode: GraphNode,
 };
 
-export default function AgentFlowDiagram() {
-  const [graphData, setGraphData] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    fetchGraph()
-      .then(setGraphData)
-      .catch((e) => setError(e.message));
-  }, []);
-
+export default function AgentFlowDiagram({ graphData }) {
   const { nodes, edges } = useMemo(
     () => (graphData ? computeLayout(graphData) : { nodes: [], edges: [] }),
     [graphData]
   );
-
-  if (error) {
-    return (
-      <Alert color="red" mb="sm">
-        Failed to load agent graph: {error}
-      </Alert>
-    );
-  }
 
   if (!graphData) {
     return <Text c="dimmed" size="sm">Loading graph...</Text>;

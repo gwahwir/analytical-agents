@@ -73,7 +73,7 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
       - CONTROL_PLANE_URL=http://control-plane:8000
-      - AGENT_URL=http://summarizer:8002
+      - SUMMARIZER_AGENT_URL=http://summarizer:8002
     networks:
       - mc-net
     depends_on:
@@ -97,7 +97,7 @@ services:
       - LOG_LEVEL=INFO
       - DOWNSTREAM_AGENT_URL=http://summarizer:8002
       - CONTROL_PLANE_URL=http://control-plane:8000
-      - AGENT_URL=http://echo-agent:8001
+      - ECHO_AGENT_URL=http://echo-agent:8001
     networks:
       - mc-net
     depends_on:
@@ -107,6 +107,58 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/.well-known/agent-card.json').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Relevancy Agent ──────────────────────────────────────────────────────────
+  relevancy:
+    build:
+      context: .
+      dockerfile: Dockerfile.relevancy
+    ports:
+      - "8003:8003"
+    environment:
+      - LOG_LEVEL=INFO
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - RELEVANCY_AGENT_URL=http://relevancy:8003
+    networks:
+      - mc-net
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8003/.well-known/agent-card.json').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Extraction Agent ───────────────────────────────────────────────────────
+  extraction:
+    build:
+      context: .
+      dockerfile: Dockerfile.extraction
+    ports:
+      - "8004:8004"
+    environment:
+      - LOG_LEVEL=INFO
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - EXTRACTION_AGENT_URL=http://extraction:8004
+    networks:
+      - mc-net
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8004/.well-known/agent-card.json').raise_for_status()"]
       interval: 10s
       timeout: 5s
       retries: 5

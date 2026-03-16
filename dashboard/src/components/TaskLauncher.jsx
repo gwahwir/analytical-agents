@@ -1,23 +1,80 @@
-import { useState } from "react";
-import { Group, Select, TextInput, Button, Title, Alert } from "@mantine/core";
+import { useState, useMemo } from "react";
+import {
+  Group,
+  Select,
+  TextInput,
+  Textarea,
+  Button,
+  Title,
+  Alert,
+  Stack,
+} from "@mantine/core";
 import { dispatchTask } from "../hooks/useApi";
 
-export default function TaskLauncher({ agents, onTaskCreated }) {
+const DEFAULT_FIELDS = [
+  {
+    name: "text",
+    label: "Prompt",
+    type: "text",
+    required: true,
+    placeholder: "Enter a task prompt...",
+  },
+];
+
+export default function TaskLauncher({ agents, graphData, onTaskCreated }) {
   const [agentId, setAgentId] = useState(null);
-  const [text, setText] = useState("");
+  const [fields, setFields] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Get input_fields for the selected agent from graph data
+  const inputFields = useMemo(() => {
+    if (!agentId || !graphData?.agents) return DEFAULT_FIELDS;
+    const agentGraph = graphData.agents.find((a) => a.id === agentId);
+    if (!agentGraph?.input_fields?.length) return DEFAULT_FIELDS;
+    return agentGraph.input_fields;
+  }, [agentId, graphData]);
+
+  const handleAgentChange = (id) => {
+    setAgentId(id);
+    setFields({});
+    setError(null);
+  };
+
+  const handleFieldChange = (name, value) => {
+    setFields((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const canSubmit = useMemo(() => {
+    if (!agentId) return false;
+    return inputFields
+      .filter((f) => f.required)
+      .every((f) => (fields[f.name] || "").trim());
+  }, [agentId, inputFields, fields]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!agentId || !text.trim()) return;
+    if (!canSubmit) return;
 
     setLoading(true);
     setError(null);
     try {
-      const result = await dispatchTask(agentId, text.trim());
+      // If only one field named "text", send its value directly.
+      // Otherwise, serialize all fields as JSON.
+      let payload;
+      if (inputFields.length === 1 && inputFields[0].name === "text") {
+        payload = (fields.text || "").trim();
+      } else {
+        const data = {};
+        inputFields.forEach((f) => {
+          data[f.name] = (fields[f.name] || "").trim();
+        });
+        payload = JSON.stringify(data);
+      }
+
+      const result = await dispatchTask(agentId, payload);
       onTaskCreated(result);
-      setText("");
+      setFields({});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -35,30 +92,47 @@ export default function TaskLauncher({ agents, onTaskCreated }) {
         Launch Task
       </Title>
       <form onSubmit={handleSubmit}>
-        <Group align="end" grow>
-          <Select
-            label="Agent"
-            placeholder="Select agent..."
-            data={agentOptions}
-            value={agentId}
-            onChange={setAgentId}
-            style={{ flex: "0 0 200px" }}
-          />
-          <TextInput
-            label="Prompt"
-            placeholder="Enter a task prompt..."
-            value={text}
-            onChange={(e) => setText(e.currentTarget.value)}
-          />
-          <Button
-            type="submit"
-            loading={loading}
-            disabled={!agentId || !text.trim()}
-            style={{ flex: "0 0 auto" }}
-          >
-            Send
-          </Button>
-        </Group>
+        <Stack gap="sm">
+          <Group align="end">
+            <Select
+              label="Agent"
+              placeholder="Select agent..."
+              data={agentOptions}
+              value={agentId}
+              onChange={handleAgentChange}
+              style={{ minWidth: 200 }}
+            />
+          </Group>
+
+          {inputFields.map((field) => {
+            const Component = field.type === "textarea" ? Textarea : TextInput;
+            return (
+              <Component
+                key={field.name}
+                label={field.label}
+                placeholder={field.placeholder || ""}
+                required={field.required}
+                value={fields[field.name] || ""}
+                onChange={(e) =>
+                  handleFieldChange(field.name, e.currentTarget.value)
+                }
+                autosize={field.type === "textarea"}
+                minRows={field.type === "textarea" ? 3 : undefined}
+                maxRows={field.type === "textarea" ? 10 : undefined}
+              />
+            );
+          })}
+
+          <Group>
+            <Button
+              type="submit"
+              loading={loading}
+              disabled={!canSubmit}
+            >
+              Send
+            </Button>
+          </Group>
+        </Stack>
       </form>
       {error && (
         <Alert color="red" mt="sm">

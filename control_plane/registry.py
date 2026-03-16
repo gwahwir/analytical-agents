@@ -154,12 +154,7 @@ class AgentRegistry:
     async def register(self, endpoint: AgentEndpoint) -> None:
         """Register one agent instance under its type and fetch its card."""
         type_id = endpoint.name or "unknown"
-        if type_id not in self._types:
-            self._types[type_id] = AgentType(id=type_id)
-
-        instance = AgentInstance(url=endpoint.url.rstrip("/"))
-        self._types[type_id].instances.append(instance)
-        await self._refresh_instance(type_id, instance)
+        await self.register_instance(type_id, endpoint.url)
 
     async def register_instance(self, type_id: str, url: str) -> AgentInstance:
         """Register or re-register a single instance. Idempotent by URL."""
@@ -177,6 +172,21 @@ class AgentRegistry:
         agent_type.instances.append(instance)
         await self._refresh_instance(type_id, instance)
         return instance
+
+    def remove_instance(self, type_id: str, url: str) -> bool:
+        """Remove an instance by URL. Returns True if found and removed."""
+        url = url.rstrip("/")
+        agent_type = self._types.get(type_id)
+        if not agent_type:
+            return False
+        for i, inst in enumerate(agent_type.instances):
+            if inst.url == url:
+                agent_type.instances.pop(i)
+                logger.info("instance_removed", type_id=type_id, url=url)
+                if not agent_type.instances:
+                    del self._types[type_id]
+                return True
+        return False
 
     async def register_all(self, endpoints: list[AgentEndpoint]) -> None:
         await asyncio.gather(

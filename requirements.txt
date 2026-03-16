@@ -11,7 +11,7 @@ redis>=5.0.0
 structlog>=25.0.0
 prometheus-fastapi-instrumentator>=7.0.0
 prometheus-client>=0.8.0
-
+python-dotenv==1.2.2
 # Dev / test
 pytest>=9.0.0
 pytest-asyncio>=1.0.0

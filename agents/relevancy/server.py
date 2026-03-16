@@ -1,11 +1,14 @@
-"""Standalone A2A server for the Summarizer agent.
+"""Standalone A2A server for the Relevancy agent.
 
 Run with:
-    python -m agents.summarizer.server
+    python -m agents.relevancy.server
 
 Environment variables:
-    OPENAI_API_KEY  – Required. Your OpenAI API key.
-    OPENAI_MODEL    – Model to use (default: gpt-4o-mini).
+    OPENAI_API_KEY    – Required. Your OpenAI API key.
+    OPENAI_BASE_URL   – Optional. Custom OpenAI-compatible base URL.
+    OPENAI_MODEL      – Model to use (default: gpt-4o-mini).
+    CONTROL_PLANE_URL – Optional. Control plane URL for self-registration.
+    AGENT_URL         – Optional. This agent's externally-reachable URL.
 """
 
 from __future__ import annotations
@@ -21,28 +24,36 @@ from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from fastapi import FastAPI
 
 from agents.base.registration import deregister_from_control_plane, register_with_control_plane
-from agents.summarizer.executor import SummarizerExecutor
+from agents.relevancy.executor import RelevancyExecutor
 from dotenv import load_dotenv
 load_dotenv()
 
-AGENT_TYPE = "summarizer"
-AGENT_PORT = 8002
+AGENT_TYPE = "relevancy"
+AGENT_PORT = 8003
+
 
 INPUT_FIELDS = [
     {
         "name": "text",
-        "label": "Text to Summarize",
+        "label": "Text",
         "type": "textarea",
         "required": True,
-        "placeholder": "Paste the text to summarize...",
+        "placeholder": "Paste the article or text to evaluate...",
+    },
+    {
+        "name": "question",
+        "label": "Question",
+        "type": "text",
+        "required": True,
+        "placeholder": "What question should this text be relevant to?",
     },
 ]
 
 agent_card = AgentCard(
-    name="Summarizer Agent",
+    name="Relevancy Agent",
     description=(
-        "Receives text and uses OpenAI to produce a concise summary. "
-        "Designed to be called by upstream agents that forward their output here."
+        "Assesses whether a given text is relevant to a specific question. "
+        "Returns a JSON result with relevancy verdict, confidence score, and reasoning."
     ),
     version="0.1.0",
     url=f"http://localhost:{AGENT_PORT}",
@@ -50,14 +61,14 @@ agent_card = AgentCard(
         streaming=True,
         push_notifications=False,
     ),
-    default_input_modes=["text/plain"],
-    default_output_modes=["text/plain"],
+    default_input_modes=["application/json"],
+    default_output_modes=["application/json"],
     skills=[
         AgentSkill(
-            id="summarize",
-            name="Summarize",
-            description="Summarizes text using OpenAI after optionally fetching from an upstream A2A agent",
-            tags=["summarize", "openai", "llm"],
+            id="relevancy-check",
+            name="Relevancy Check",
+            description="Checks if text is relevant to a question using an LLM",
+            tags=["relevancy", "llm", "analysis"],
         ),
     ],
 )
@@ -65,16 +76,18 @@ agent_card = AgentCard(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    agent_url = os.getenv("SUMMARIZER_AGENT_URL", os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}"))
+    agent_url = os.getenv("RELEVANCY_AGENT_URL", os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}"))
     await register_with_control_plane(AGENT_TYPE, agent_url)
     yield
     await deregister_from_control_plane(AGENT_TYPE, agent_url)
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Summarizer Agent A2A Server", lifespan=lifespan)
+    app = FastAPI(title="Relevancy Agent A2A Server", lifespan=lifespan)
+    agent_url = os.getenv("RELEVANCY_AGENT_URL", os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}"))
+    print(f"My Address is {agent_url}")
 
-    executor = SummarizerExecutor()
+    executor = RelevancyExecutor()
     task_store = InMemoryTaskStore()
     request_handler = DefaultRequestHandler(
         agent_executor=executor,

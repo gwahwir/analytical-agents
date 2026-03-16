@@ -5,17 +5,23 @@ const NODE_HEIGHT = 36;
 const GROUP_PADDING_TOP = 50;
 const GROUP_PADDING_X = 24;
 const GROUP_PADDING_BOTTOM = 24;
-const GROUP_GAP = 80;
+const GROUP_GAP = 100;
 
 /**
  * Convert the /graph API response into React Flow nodes and edges.
+ *
+ * All nodes use absolute positioning (no parentId) so that cross-agent
+ * edges render correctly. Agent group nodes are placed behind their
+ * children using lower zIndex.
  */
 export function computeLayout(graphData) {
   const { agents = [], cross_agent_edges = [] } = graphData;
   const nodes = [];
   const edges = [];
 
-  // Step 1: Layout each agent's internal graph with dagre to get relative positions
+  if (!agents.length) return { nodes, edges };
+
+  // Step 1: Layout each agent's internal graph with dagre
   const agentLayouts = {};
 
   agents.forEach((agent) => {
@@ -32,11 +38,11 @@ export function computeLayout(graphData) {
 
     dagre.layout(g);
 
-    // Collect positioned nodes
     const positioned = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     g.nodes().forEach((nid) => {
       const n = g.node(nid);
+      if (!n) return;
       positioned.push({ id: nid, x: n.x, y: n.y });
       minX = Math.min(minX, n.x - NODE_WIDTH / 2);
       minY = Math.min(minY, n.y - NODE_HEIGHT / 2);
@@ -57,22 +63,28 @@ export function computeLayout(graphData) {
     };
   });
 
-  // Step 2: Position agent groups left-to-right
+  // Step 2: Align all agent groups vertically centered, laid out left-to-right
+  const maxGroupHeight = Math.max(
+    ...Object.values(agentLayouts).map((l) => l.groupHeight)
+  );
+
   let currentX = 0;
   const agentPositions = {};
 
   agents.forEach((agent) => {
     const layout = agentLayouts[agent.id];
-    agentPositions[agent.id] = { x: currentX, y: 0 };
+    // Center vertically relative to the tallest group
+    const yOffset = (maxGroupHeight - layout.groupHeight) / 2;
+    agentPositions[agent.id] = { x: currentX, y: yOffset };
     currentX += layout.groupWidth + GROUP_GAP;
   });
 
-  // Step 3: Build React Flow nodes
+  // Step 3: Build React Flow nodes with absolute positions
   agents.forEach((agent) => {
     const layout = agentLayouts[agent.id];
     const groupPos = agentPositions[agent.id];
 
-    // Agent group node
+    // Agent group node (background container, lower z-index)
     nodes.push({
       id: `group-${agent.id}`,
       type: "agentGroup",
@@ -85,9 +97,10 @@ export function computeLayout(graphData) {
       },
       draggable: false,
       selectable: false,
+      zIndex: 0,
     });
 
-    // Internal nodes positioned relative to the group
+    // Internal nodes — absolute position (group origin + padding + relative pos)
     layout.positioned.forEach((n) => {
       const isEntry = n.id === agent.entry_node;
       const isDownstream = cross_agent_edges.some(
@@ -98,17 +111,16 @@ export function computeLayout(graphData) {
         id: `${agent.id}:${n.id}`,
         type: "graphNode",
         position: {
-          x: n.x - layout.minX + GROUP_PADDING_X - NODE_WIDTH / 2,
-          y: n.y - layout.minY + GROUP_PADDING_TOP - NODE_HEIGHT / 2,
+          x: groupPos.x + (n.x - layout.minX + GROUP_PADDING_X - NODE_WIDTH / 2),
+          y: groupPos.y + (n.y - layout.minY + GROUP_PADDING_TOP - NODE_HEIGHT / 2),
         },
-        parentId: `group-${agent.id}`,
-        extent: "parent",
         data: {
           label: n.id,
           isEntry,
           isDownstream,
         },
         draggable: false,
+        zIndex: 1,
       });
     });
 
@@ -121,6 +133,7 @@ export function computeLayout(graphData) {
         type: "smoothstep",
         style: { stroke: "#555" },
         animated: false,
+        zIndex: 2,
       });
     });
   });
@@ -138,6 +151,7 @@ export function computeLayout(graphData) {
       labelStyle: { fill: "var(--mantine-color-orange-3)", fontSize: 11 },
       labelBgStyle: { fill: "var(--mantine-color-dark-7)" },
       labelBgPadding: [6, 3],
+      zIndex: 3,
     });
   });
 

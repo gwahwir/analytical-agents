@@ -34,8 +34,11 @@ async def summarize(state: SummarizerState, config: RunnableConfig) -> dict[str,
 
     openai_kwargs: dict[str, Any] = {}
     base_url = os.getenv("OPENAI_BASE_URL")
+    api_key = os.getenv("OPENAI_API_KEY")
     if base_url:
         openai_kwargs["base_url"] = base_url
+    if api_key:
+        openai_kwargs["api_key"] = api_key
     openai_client = AsyncOpenAI(**openai_kwargs)  # uses OPENAI_API_KEY env var
 
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

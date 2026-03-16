@@ -15,11 +15,12 @@ import TaskBoard from "./components/TaskBoard";
 import TaskHistory from "./components/TaskHistory";
 import TaskDetailDrawer from "./components/TaskDetailDrawer";
 import AgentFlowDiagram from "./components/AgentFlowDiagram";
-import { fetchAgents, fetchTasks } from "./hooks/useApi";
+import { fetchAgents, fetchGraph, fetchTasks } from "./hooks/useApi";
 
 function App() {
   const [agents, setAgents] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [graphData, setGraphData] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [tab, setTab] = useState("flow");
 
@@ -31,16 +32,23 @@ function App() {
     fetchTasks().then(setTasks).catch(() => {});
   }, []);
 
+  const loadGraph = useCallback(() => {
+    fetchGraph().then(setGraphData).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadAgents();
     loadTasks();
+    loadGraph();
     const i1 = setInterval(loadAgents, 10000);
     const i2 = setInterval(loadTasks, 3000);
+    const i3 = setInterval(loadGraph, 30000);
     return () => {
       clearInterval(i1);
       clearInterval(i2);
+      clearInterval(i3);
     };
-  }, [loadAgents, loadTasks]);
+  }, [loadAgents, loadTasks, loadGraph]);
 
   const handleTaskCreated = (task) => {
     setTasks((prev) => [task, ...prev]);
@@ -95,7 +103,7 @@ function App() {
           </Box>
 
           <Box mb="xl">
-            <TaskLauncher agents={agents} onTaskCreated={handleTaskCreated} />
+            <TaskLauncher agents={agents} graphData={graphData} onTaskCreated={handleTaskCreated} />
           </Box>
 
           <Tabs value={tab} onChange={setTab}>
@@ -106,7 +114,7 @@ function App() {
             </Tabs.List>
 
             <Tabs.Panel value="flow">
-              <AgentFlowDiagram />
+              <AgentFlowDiagram graphData={graphData} />
             </Tabs.Panel>
 
             <Tabs.Panel value="board">

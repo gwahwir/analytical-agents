@@ -1,13 +1,19 @@
-"""Standalone A2A server for the Echo agent.
+"""Standalone A2A server for the Relevancy agent.
 
 Run with:
-    python -m agents.echo.server
+    python -m agents.relevancy.server
+
+Environment variables:
+    OPENAI_API_KEY    – Required. Your OpenAI API key.
+    OPENAI_BASE_URL   – Optional. Custom OpenAI-compatible base URL.
+    OPENAI_MODEL      – Model to use (default: gpt-4o-mini).
+    CONTROL_PLANE_URL – Optional. Control plane URL for self-registration.
+    AGENT_URL         – Optional. This agent's externally-reachable URL.
 """
 
 from __future__ import annotations
 
 import os
-
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -18,41 +24,43 @@ from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from fastapi import FastAPI
 
 from agents.base.registration import deregister_from_control_plane, register_with_control_plane
-from agents.echo.executor import EchoAgentExecutor
+from agents.extraction_agent.executor import ExtractionExecutor
 from dotenv import load_dotenv
 load_dotenv()
 
-AGENT_TYPE = "echo-agent"
-AGENT_PORT = 8001
+AGENT_TYPE = "extraction"
+AGENT_PORT = 8004
+
 
 INPUT_FIELDS = [
     {
         "name": "text",
-        "label": "Message",
-        "type": "text",
+        "label": "Text",
+        "type": "textarea",
         "required": True,
-        "placeholder": "Type a message to echo...",
-    },
+        "placeholder": "Paste the article or text to extract information...",
+    }
 ]
 
 agent_card = AgentCard(
-    name="Echo Agent",
-    description="A proof-of-concept agent that echoes messages back in uppercase. "
-    "Demonstrates LangGraph + A2A integration with cancellation support.",
+    name="Extraction Agent",
+    description=(
+        "Extracts and Returns a JSON result with structured data schema"
+    ),
     version="0.1.0",
     url=f"http://localhost:{AGENT_PORT}",
     capabilities=AgentCapabilities(
         streaming=True,
         push_notifications=False,
     ),
-    default_input_modes=["text/plain"],
-    default_output_modes=["text/plain"],
+    default_input_modes=["application/json"],
+    default_output_modes=["application/json"],
     skills=[
         AgentSkill(
-            id="echo",
-            name="Echo",
-            description="Echoes the user message back in uppercase",
-            tags=["echo", "demo"],
+            id="extraction",
+            name="Information Extraction",
+            description="Extracts information out from a blob of text",
+            tags=["extraction", "llm", "analysis"],
         ),
     ],
 )
@@ -60,16 +68,18 @@ agent_card = AgentCard(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    agent_url = os.getenv("ECHO_AGENT_URL", os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}"))
+    agent_url = os.getenv("EXTRACTION_AGENT_URL", os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}"))
     await register_with_control_plane(AGENT_TYPE, agent_url)
     yield
     await deregister_from_control_plane(AGENT_TYPE, agent_url)
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Echo Agent A2A Server", lifespan=lifespan)
+    app = FastAPI(title="Extraction Agent A2A Server", lifespan=lifespan)
+    agent_url = os.getenv("EXTRACTION_AGENT_URL", os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}"))
+    print(f"My Address is {agent_url}")
 
-    executor = EchoAgentExecutor()
+    executor = ExtractionExecutor()
     task_store = InMemoryTaskStore()
     request_handler = DefaultRequestHandler(
         agent_executor=executor,
@@ -86,12 +96,6 @@ def create_app() -> FastAPI:
     async def get_graph():
         topology = executor.get_graph_topology()
         topology["input_fields"] = INPUT_FIELDS
-        downstream_url = os.getenv("DOWNSTREAM_AGENT_URL", "")
-        if downstream_url:
-            topology["downstream"] = {
-                "from_node": "forward_downstream",
-                "agent_url": downstream_url,
-            }
         return topology
 
     return app

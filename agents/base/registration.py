@@ -11,6 +11,8 @@ import asyncio
 import os
 
 import httpx
+from dotenv import load_dotenv
+load_dotenv()
 
 
 async def register_with_control_plane(type_name: str, agent_url: str) -> None:
@@ -20,6 +22,7 @@ async def register_with_control_plane(type_name: str, agent_url: str) -> None:
     control plane still get registered once it comes up.
     """
     cp_url = os.getenv("CONTROL_PLANE_URL", "").rstrip("/")
+    print(f"Registering to {cp_url}")
     if not cp_url:
         return
 
@@ -39,3 +42,21 @@ async def register_with_control_plane(type_name: str, agent_url: str) -> None:
             await asyncio.sleep(wait)
 
     print("[registration] WARNING: Failed to register after 5 attempts")
+
+
+async def deregister_from_control_plane(type_name: str, agent_url: str) -> None:
+    """POST to the control plane to deregister this agent instance on shutdown."""
+    cp_url = os.getenv("CONTROL_PLANE_URL", "").rstrip("/")
+    if not cp_url:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.post(
+                f"{cp_url}/agents/deregister",
+                json={"type_name": type_name, "agent_url": agent_url},
+            )
+            r.raise_for_status()
+            print(f"[registration] Deregistered from control plane: {r.json()}")
+    except Exception as e:
+        print(f"[registration] Deregistration failed ({e}), control plane will detect via health poll")

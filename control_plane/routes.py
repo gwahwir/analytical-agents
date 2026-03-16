@@ -77,6 +77,19 @@ async def register_agent(req: RegisterRequest) -> dict[str, Any]:
     }
 
 
+@router.post("/agents/deregister")
+async def deregister_agent(req: RegisterRequest) -> dict[str, Any]:
+    """Allow agents to deregister on shutdown."""
+    assert _registry is not None
+    removed = _registry.remove_instance(req.type_name, req.agent_url)
+    if removed:
+        logger.info("agent_deregistered", type_name=req.type_name, url=req.agent_url)
+    return {
+        "status": "deregistered" if removed else "not_found",
+        "type_name": req.type_name,
+        "agent_url": req.agent_url,
+    }
+
 
 @router.get("/agents")
 async def list_agents() -> list[dict[str, Any]]:
@@ -250,16 +263,26 @@ async def get_graph() -> dict[str, Any]:
 
     agents_data: list[dict[str, Any]] = []
     cross_agent_edges: list[dict[str, str]] = []
+    pending_downstream: list[tuple[str, dict]] = []  # (source_type_id, downstream_info)
 
-    # Build a URL → agent type ID lookup for resolving downstream references
+    # Build lookup tables for resolving downstream references
+    # Map exact URL and also port number to agent type ID
     url_to_type: dict[str, str] = {}
+    port_to_type: dict[str, str] = {}
     for type_id, agent_type in _registry.agents.items():
         for inst in agent_type.instances:
             url_to_type[inst.url.rstrip("/")] = type_id
+            # Extract port from URL for fuzzy matching
+            try:
+                from urllib.parse import urlparse
+                port = urlparse(inst.url).port
+                if port:
+                    port_to_type[str(port)] = type_id
+            except Exception:
+                pass
 
     async with httpx.AsyncClient(timeout=5) as client:
         for type_id, agent_type in _registry.agents.items():
-            # Pick any online instance to get the graph
             instance = agent_type.pick()
             if not instance:
                 continue
@@ -278,34 +301,48 @@ async def get_graph() -> dict[str, Any]:
                 "nodes": topology.get("nodes", []),
                 "edges": topology.get("edges", []),
                 "entry_node": topology.get("entry_node"),
+                "input_fields": topology.get("input_fields", []),
             })
 
-            # Resolve downstream cross-agent edge
             downstream = topology.get("downstream")
             if downstream:
-                target_url = downstream["agent_url"].rstrip("/")
-                target_type = url_to_type.get(target_url)
-                if target_type:
-                    # Find the target agent's entry node
-                    target_entry = None
-                    for ad in agents_data:
-                        if ad["id"] == target_type:
-                            target_entry = ad.get("entry_node")
-                            break
-                    cross_agent_edges.append({
-                        "source_agent": type_id,
-                        "source_node": downstream["from_node"],
-                        "target_agent": target_type,
-                        "target_node": target_entry or "unknown",
-                    })
+                pending_downstream.append((type_id, downstream))
 
-    # Second pass: resolve any cross-agent edges where target wasn't yet loaded
-    for edge in cross_agent_edges:
-        if edge["target_node"] == "unknown":
+    # Resolve all cross-agent edges after all agents are loaded
+    for source_type_id, downstream in pending_downstream:
+        target_url = downstream["agent_url"].rstrip("/")
+
+        # Try exact URL match first
+        target_type = url_to_type.get(target_url)
+
+        # Fall back to port-based matching
+        if not target_type:
+            try:
+                from urllib.parse import urlparse
+                port = urlparse(target_url).port
+                if port:
+                    target_type = port_to_type.get(str(port))
+            except Exception:
+                pass
+
+        if target_type:
+            target_entry = None
             for ad in agents_data:
-                if ad["id"] == edge["target_agent"]:
-                    edge["target_node"] = ad.get("entry_node") or "unknown"
+                if ad["id"] == target_type:
+                    target_entry = ad.get("entry_node")
                     break
+            cross_agent_edges.append({
+                "source_agent": source_type_id,
+                "source_node": downstream["from_node"],
+                "target_agent": target_type,
+                "target_node": target_entry or "unknown",
+            })
+        else:
+            logger.warning(
+                "downstream_unresolved",
+                source=source_type_id,
+                target_url=target_url,
+            )
 
     return {"agents": agents_data, "cross_agent_edges": cross_agent_edges}
 
