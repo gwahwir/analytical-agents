@@ -22,6 +22,7 @@ from langgraph.types import RetryPolicy
 
 class ExtractionState(TypedDict):
     text: str
+    input: str
     llm_response: str
     output: str
 
@@ -34,6 +35,7 @@ async def parse_input(state: ExtractionState, config: RunnableConfig) -> dict[st
 
     try:
         data = json.loads(state["input"])
+        print(data)
         return {
             "text": data.get("text", "")
         }
@@ -57,91 +59,97 @@ async def extract_using_llm(state: ExtractionState, config: RunnableConfig) -> d
     client = AsyncOpenAI(api_key=api_key, **openai_kwargs)
 
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    """
- You are a precise information extraction engine. Given a blob of text (typically a news article or informational
-    content), extract all key information into a structured JSON object.
-
-    You MUST respond with ONLY a valid JSON object — no commentary, no markdown fences, no explanation outside the JSON.
-
-    Extract the following fields:
-
-    {
-      "title": "Inferred or extracted title/headline of the article",
-      "summary": "2-3 sentence summary of the core content",
-      "entities": {
-        "persons": [
-          {"name": "Full Name", "role": "Their role/title if mentioned", "sentiment": "positive|negative|neutral"}
-        ],
-        "organizations": [
-          {"name": "Org Name", "type": "company|government|ngo|media|educational|other"}
-        ],
-        "locations": [
-          {"name": "Place Name", "type": "city|country|region|address|landmark"}
-        ],
-        "products": [
-          {"name": "Product/Service Name", "owner": "Owning entity if known"}
-        ]
-      },
-      "temporal": {
-        "publication_date": "YYYY-MM-DD or null if unknown",
-        "events": [
-          {"description": "What happened", "date": "YYYY-MM-DD or approximate", "is_future": false}
-        ]
-      },
-      "financials": [
-        {"amount": "Numeric value", "currency": "USD/EUR/etc", "context": "What the amount refers to"}
-      ],
-      "topics": ["tag1", "tag2"],
-      "categories":
-    ["politics|business|technology|science|health|sports|entertainment|environment|legal|conflict|other"],
-      "claims": [
-        {"statement": "A factual claim made in the text", "attribution": "Who said/claimed it", "verifiable": true}
-      ],
-      "relationships": [
-        {"subject": "Entity A", "predicate": "acquired|partnered_with|sued|appointed|etc", "object": "Entity B"}
-      ],
-      "metadata": {
-        "language": "en",
-        "word_count": 0,
-        "tone": "formal|informal|urgent|analytical|opinion",
-        "confidence": 0.0
-      }
-    }
-
-    Rules:
-    - Omit array fields that have no matches (use empty arrays, not null).
-    - Never fabricate information not present or clearly implied in the text.
-    - For ambiguous dates, use the most specific format possible ("2026-03" if only month/year is known).
-    - Normalize entity names (e.g., "President Biden" and "Joe Biden" → one entry with full name).
-    - The confidence field in metadata (0.0–1.0) reflects your overall confidence in extraction accuracy.
-    - If financial figures use shorthand (e.g., "$2.5B"), expand to full numeric strings ("2500000000").
-    - Extract implicit relationships (e.g., "CEO of Acme Corp" → relationship: person → leads → Acme Corp).
-"""
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Text:\n{state['text']}",
-            },
-        ],
-        temperature=0.1,
-        max_tokens=10000,
-    )
-    raw = response.choices[0].message.content
+    print("Processing new job")
     try:
-        parsed = json.loads(raw)
-        result = parsed
-    except (json.JSONDecodeError, ValueError):
-        result = {}
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        """
+    You are a precise information extraction engine. Given a blob of text (typically a news article or informational
+        content), extract all key information into a structured JSON object.
 
-    return {"output": json.dumps(result, indent=2)}
+        You MUST respond with ONLY a valid JSON object — no commentary, no markdown fences, no explanation outside the JSON.
+
+        Extract the following fields:
+
+        {
+        "title": "Inferred or extracted title/headline of the article",
+        "summary": "2-3 sentence summary of the core content",
+        "entities": {
+            "persons": [
+            {"name": "Full Name", "role": "Their role/title if mentioned", "sentiment": "positive|negative|neutral"}
+            ],
+            "organizations": [
+            {"name": "Org Name", "type": "company|government|ngo|media|educational|other"}
+            ],
+            "locations": [
+            {"name": "Place Name", "type": "city|country|region|address|landmark"}
+            ],
+            "products": [
+            {"name": "Product/Service Name", "owner": "Owning entity if known"}
+            ]
+        },
+        "temporal": {
+            "publication_date": "YYYY-MM-DD or null if unknown",
+            "events": [
+            {"description": "What happened", "date": "YYYY-MM-DD or approximate", "is_future": false}
+            ]
+        },
+        "financials": [
+            {"amount": "Numeric value", "currency": "USD/EUR/etc", "context": "What the amount refers to"}
+        ],
+        "topics": ["tag1", "tag2"],
+        "categories":
+        ["politics|business|technology|science|health|sports|entertainment|environment|legal|conflict|other"],
+        "claims": [
+            {"statement": "A factual claim made in the text", "attribution": "Who said/claimed it", "verifiable": true}
+        ],
+        "relationships": [
+            {"subject": "Entity A", "predicate": "acquired|partnered_with|sued|appointed|etc", "object": "Entity B"}
+        ],
+        "metadata": {
+            "language": "en",
+            "word_count": 0,
+            "tone": "formal|informal|urgent|analytical|opinion",
+            "confidence": 0.0
+        }
+        }
+
+        Rules:
+        - Omit array fields that have no matches (use empty arrays, not null).
+        - Never fabricate information not present or clearly implied in the text.
+        - For ambiguous dates, use the most specific format possible ("2026-03" if only month/year is known).
+        - Normalize entity names (e.g., "President Biden" and "Joe Biden" → one entry with full name).
+        - The confidence field in metadata (0.0–1.0) reflects your overall confidence in extraction accuracy.
+        - If financial figures use shorthand (e.g., "$2.5B"), expand to full numeric strings ("2500000000").
+        - Extract implicit relationships (e.g., "CEO of Acme Corp" → relationship: person → leads → Acme Corp).
+    """
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Text:\n{state['text']}",
+                },
+            ],
+            temperature=0.1,
+            max_completion_tokens=60000,
+            timeout=300,
+        )
+        raw = response.choices[0].message.content
+        print(raw)
+        try:
+            parsed = json.loads(raw)
+            result = parsed
+        except (json.JSONDecodeError, ValueError):
+            result = {}
+
+        return {"output": json.dumps(result, indent=2)}
+    except Exception as e:
+        print(e)
+        return e
 
 
 # async def format_response(state: RelevancyState, config: RunnableConfig) -> dict[str, Any]:
