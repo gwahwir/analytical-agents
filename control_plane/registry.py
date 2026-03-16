@@ -161,6 +161,23 @@ class AgentRegistry:
         self._types[type_id].instances.append(instance)
         await self._refresh_instance(type_id, instance)
 
+    async def register_instance(self, type_id: str, url: str) -> AgentInstance:
+        """Register or re-register a single instance. Idempotent by URL."""
+        url = url.rstrip("/")
+        if type_id not in self._types:
+            self._types[type_id] = AgentType(id=type_id)
+
+        agent_type = self._types[type_id]
+        for inst in agent_type.instances:
+            if inst.url == url:
+                await self._refresh_instance(type_id, inst)
+                return inst
+
+        instance = AgentInstance(url=url)
+        agent_type.instances.append(instance)
+        await self._refresh_instance(type_id, instance)
+        return instance
+
     async def register_all(self, endpoints: list[AgentEndpoint]) -> None:
         await asyncio.gather(
             *(self.register(ep) for ep in endpoints),

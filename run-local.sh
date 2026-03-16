@@ -52,25 +52,30 @@ wait_for_port() {
 echo "=== Mission Control — Local Dev ==="
 echo ""
 
-# ── Summarizer Agent (start first — echo-agent forwards to it) ──
-echo "[1/4] Starting Summarizer Agent on port $SUMMARIZER_PORT..."
-python -m agents.summarizer.server &
+# ── Control Plane (start first so agents can self-register) ──
+echo "[1/4] Starting Control Plane on port $CONTROL_PLANE_PORT..."
+python -m control_plane.server &
+PIDS+=($!)
+wait_for_port $CONTROL_PLANE_PORT "Control Plane"
+
+CP_URL="http://127.0.0.1:$CONTROL_PLANE_PORT"
+
+# ── Summarizer Agent ────────────────────────────────────────
+echo "[2/4] Starting Summarizer Agent on port $SUMMARIZER_PORT..."
+CONTROL_PLANE_URL="$CP_URL" \
+AGENT_URL="http://127.0.0.1:$SUMMARIZER_PORT" \
+  python -m agents.summarizer.server &
 PIDS+=($!)
 wait_for_port $SUMMARIZER_PORT "Summarizer Agent"
 
 # ── Echo Agent ──────────────────────────────────────────────
-echo "[2/4] Starting Echo Agent on port $ECHO_PORT..."
+echo "[3/4] Starting Echo Agent on port $ECHO_PORT..."
+CONTROL_PLANE_URL="$CP_URL" \
+AGENT_URL="http://127.0.0.1:$ECHO_PORT" \
 DOWNSTREAM_AGENT_URL="http://127.0.0.1:$SUMMARIZER_PORT" \
   python -m agents.echo.server &
 PIDS+=($!)
-wait_for_port $SUMMARIZER_PORT "Summarizer Agent"
-
-# ── Control Plane ───────────────────────────────────────────
-echo "[3/4] Starting Control Plane on port $CONTROL_PLANE_PORT..."
-AGENT_URLS="echo-agent@http://127.0.0.1:$ECHO_PORT,summarizer@http://127.0.0.1:$SUMMARIZER_PORT" \
-  python -m control_plane.server &
-PIDS+=($!)
-wait_for_port $CONTROL_PLANE_PORT "Control Plane"
+wait_for_port $ECHO_PORT "Echo Agent"
 
 # ── Dashboard ───────────────────────────────────────────────
 echo "[4/4] Starting Dashboard on port $DASHBOARD_PORT..."

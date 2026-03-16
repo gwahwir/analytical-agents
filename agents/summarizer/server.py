@@ -10,6 +10,9 @@ Environment variables:
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
+
 import uvicorn
 from a2a.server.apps.jsonrpc import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -17,8 +20,10 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from fastapi import FastAPI
 
+from agents.base.registration import register_with_control_plane
 from agents.summarizer.executor import SummarizerExecutor
 
+AGENT_TYPE = "summarizer"
 AGENT_PORT = 8002
 
 agent_card = AgentCard(
@@ -46,8 +51,15 @@ agent_card = AgentCard(
 )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    agent_url = os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}")
+    await register_with_control_plane(AGENT_TYPE, agent_url)
+    yield
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Summarizer Agent A2A Server")
+    app = FastAPI(title="Summarizer Agent A2A Server", lifespan=lifespan)
 
     executor = SummarizerExecutor()
     task_store = InMemoryTaskStore()
@@ -61,6 +73,11 @@ def create_app() -> FastAPI:
         http_handler=request_handler,
     )
     a2a_app.add_routes_to_app(app)
+
+    @app.get("/graph")
+    async def get_graph():
+        return executor.get_graph_topology()
+
     return app
 
 

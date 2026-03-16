@@ -35,7 +35,32 @@ services:
       retries: 10
       start_period: 5s
 
-  # ── Summarizer Agent (started before echo-agent — echo forwards to it) ────
+  # ── Control Plane (starts before agents so they can self-register) ────────
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://mc:mc_password@postgres:5432/missioncontrol
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - mc-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/agents').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Summarizer Agent ────────────────────────────────────────────────────────
   summarizer:
     build:
       context: .
@@ -47,8 +72,13 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - AGENT_URL=http://summarizer:8002
     networks:
       - mc-net
+    depends_on:
+      control-plane:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/.well-known/agent-card.json').raise_for_status()"]
       interval: 10s
@@ -66,9 +96,13 @@ services:
     environment:
       - LOG_LEVEL=INFO
       - DOWNSTREAM_AGENT_URL=http://summarizer:8002
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - AGENT_URL=http://echo-agent:8001
     networks:
       - mc-net
     depends_on:
+      control-plane:
+        condition: service_healthy
       summarizer:
         condition: service_healthy
     healthcheck:
@@ -77,39 +111,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
-  # ── Control Plane ──────────────────────────────────────────────────────────
-  # Scale with: docker compose up --scale echo-agent=3
-  # Add more agent types via AGENT_URLS:
-  #   echo-agent@http://echo-agent:8001,summarizer@http://summarizer:8002
-  control-plane:
-    build:
-      context: .
-      dockerfile: Dockerfile.control-plane
-    ports:
-      - "8000:8000"
-    environment:
-      - LOG_LEVEL=INFO
-      - AGENT_URLS=echo-agent@http://echo-agent:8001,summarizer@http://summarizer:8002
-      - DATABASE_URL=postgresql://mc:mc_password@postgres:5432/missioncontrol
-      - REDIS_URL=redis://redis:6379/0
-    networks:
-      - mc-net
-    depends_on:
-      echo-agent:
-        condition: service_healthy
-      summarizer:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/agents').raise_for_status()"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
 
   # ── React Dashboard ────────────────────────────────────────────────────────
   dashboard:

@@ -14,13 +14,14 @@ import TaskLauncher from "./components/TaskLauncher";
 import TaskBoard from "./components/TaskBoard";
 import TaskHistory from "./components/TaskHistory";
 import TaskDetailDrawer from "./components/TaskDetailDrawer";
+import AgentFlowDiagram from "./components/AgentFlowDiagram";
 import { fetchAgents, fetchTasks } from "./hooks/useApi";
 
 function App() {
   const [agents, setAgents] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
-  const [tab, setTab] = useState("board");
+  const [tab, setTab] = useState("flow");
 
   const loadAgents = useCallback(() => {
     fetchAgents().then(setAgents).catch(() => {});
@@ -99,9 +100,14 @@ function App() {
 
           <Tabs value={tab} onChange={setTab}>
             <Tabs.List mb="md">
+              <Tabs.Tab value="flow">Agent Flow</Tabs.Tab>
               <Tabs.Tab value="board">Task Board</Tabs.Tab>
               <Tabs.Tab value="history">History</Tabs.Tab>
             </Tabs.List>
+
+            <Tabs.Panel value="flow">
+              <AgentFlowDiagram />
+            </Tabs.Panel>
 
             <Tabs.Panel value="board">
               <TaskBoard tasks={tasks} onSelectTask={setSelectedTask} />

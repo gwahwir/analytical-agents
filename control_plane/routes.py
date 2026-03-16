@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+import httpx
+
 from control_plane.a2a_client import A2AClient, A2AError
 from control_plane.log import get_logger
 from control_plane.metrics import (
@@ -52,9 +54,29 @@ class TaskRequest(BaseModel):
     text: str
 
 
+class RegisterRequest(BaseModel):
+    type_name: str
+    agent_url: str
+
+
 # ------------------------------------------------------------------
 # Agent endpoints
 # ------------------------------------------------------------------
+
+@router.post("/agents/register")
+async def register_agent(req: RegisterRequest) -> dict[str, Any]:
+    """Allow agents to self-register with the control plane."""
+    assert _registry is not None
+    instance = await _registry.register_instance(req.type_name, req.agent_url)
+    logger.info("agent_registered", type_name=req.type_name, url=req.agent_url, status=instance.status.value)
+    return {
+        "status": "registered",
+        "type_name": req.type_name,
+        "agent_url": req.agent_url,
+        "agent_status": instance.status.value,
+    }
+
+
 
 @router.get("/agents")
 async def list_agents() -> list[dict[str, Any]]:
@@ -215,6 +237,77 @@ async def cancel_task_endpoint(agent_id: str, task_id: str) -> dict[str, Any]:
 async def list_all_tasks() -> list[dict[str, Any]]:
     assert _task_store is not None
     return [t.to_dict() for t in await _task_store.list_all()]
+
+
+# ------------------------------------------------------------------
+# Graph topology — aggregated from all agents
+# ------------------------------------------------------------------
+
+@router.get("/graph")
+async def get_graph() -> dict[str, Any]:
+    """Fetch graph topology from all agents and resolve cross-agent edges."""
+    assert _registry is not None
+
+    agents_data: list[dict[str, Any]] = []
+    cross_agent_edges: list[dict[str, str]] = []
+
+    # Build a URL → agent type ID lookup for resolving downstream references
+    url_to_type: dict[str, str] = {}
+    for type_id, agent_type in _registry.agents.items():
+        for inst in agent_type.instances:
+            url_to_type[inst.url.rstrip("/")] = type_id
+
+    async with httpx.AsyncClient(timeout=5) as client:
+        for type_id, agent_type in _registry.agents.items():
+            # Pick any online instance to get the graph
+            instance = agent_type.pick()
+            if not instance:
+                continue
+            try:
+                r = await client.get(f"{instance.url}/graph")
+                r.raise_for_status()
+                topology = r.json()
+            except Exception:
+                logger.warning("graph_fetch_failed", type_id=type_id, url=instance.url)
+                continue
+
+            agents_data.append({
+                "id": type_id,
+                "name": agent_type.name,
+                "status": agent_type.status,
+                "nodes": topology.get("nodes", []),
+                "edges": topology.get("edges", []),
+                "entry_node": topology.get("entry_node"),
+            })
+
+            # Resolve downstream cross-agent edge
+            downstream = topology.get("downstream")
+            if downstream:
+                target_url = downstream["agent_url"].rstrip("/")
+                target_type = url_to_type.get(target_url)
+                if target_type:
+                    # Find the target agent's entry node
+                    target_entry = None
+                    for ad in agents_data:
+                        if ad["id"] == target_type:
+                            target_entry = ad.get("entry_node")
+                            break
+                    cross_agent_edges.append({
+                        "source_agent": type_id,
+                        "source_node": downstream["from_node"],
+                        "target_agent": target_type,
+                        "target_node": target_entry or "unknown",
+                    })
+
+    # Second pass: resolve any cross-agent edges where target wasn't yet loaded
+    for edge in cross_agent_edges:
+        if edge["target_node"] == "unknown":
+            for ad in agents_data:
+                if ad["id"] == edge["target_agent"]:
+                    edge["target_node"] = ad.get("entry_node") or "unknown"
+                    break
+
+    return {"agents": agents_data, "cross_agent_edges": cross_agent_edges}
 
 
 # ------------------------------------------------------------------

@@ -6,6 +6,10 @@ Run with:
 
 from __future__ import annotations
 
+import os
+
+from contextlib import asynccontextmanager
+
 import uvicorn
 from a2a.server.apps.jsonrpc import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -13,8 +17,10 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from fastapi import FastAPI
 
+from agents.base.registration import register_with_control_plane
 from agents.echo.executor import EchoAgentExecutor
 
+AGENT_TYPE = "echo-agent"
 AGENT_PORT = 8001
 
 agent_card = AgentCard(
@@ -40,8 +46,15 @@ agent_card = AgentCard(
 )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    agent_url = os.getenv("AGENT_URL", f"http://localhost:{AGENT_PORT}")
+    await register_with_control_plane(AGENT_TYPE, agent_url)
+    yield
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Echo Agent A2A Server")
+    app = FastAPI(title="Echo Agent A2A Server", lifespan=lifespan)
 
     executor = EchoAgentExecutor()
     task_store = InMemoryTaskStore()
@@ -55,6 +68,18 @@ def create_app() -> FastAPI:
         http_handler=request_handler,
     )
     a2a_app.add_routes_to_app(app)
+
+    @app.get("/graph")
+    async def get_graph():
+        topology = executor.get_graph_topology()
+        downstream_url = os.getenv("DOWNSTREAM_AGENT_URL", "")
+        if downstream_url:
+            topology["downstream"] = {
+                "from_node": "forward_downstream",
+                "agent_url": downstream_url,
+            }
+        return topology
+
     return app
 
 

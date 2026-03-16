@@ -24,6 +24,12 @@ export async function cancelTask(agentId, taskId) {
   return res.json();
 }
 
+export async function fetchGraph() {
+  const res = await fetch(`${API_BASE}/graph`);
+  if (!res.ok) throw new Error("Failed to fetch graph");
+  return res.json();
+}
+
 export async function fetchTasks() {
   const res = await fetch(`${API_BASE}/tasks`);
   if (!res.ok) throw new Error("Failed to fetch tasks");

@@ -55,6 +55,31 @@ class LangGraphA2AExecutor(AgentExecutor, CancellableMixin):
         return self._graph
 
     # ------------------------------------------------------------------
+    # Graph introspection
+    # ------------------------------------------------------------------
+
+    def get_graph_topology(self) -> dict[str, Any]:
+        """Return the graph's nodes and edges as a serialisable dict."""
+        drawable = self.graph.get_graph()
+        nodes = [
+            {"id": nid, "name": n.name}
+            for nid, n in drawable.nodes.items()
+            if nid not in ("__start__", "__end__")
+        ]
+        edges = [
+            {"source": e.source, "target": e.target}
+            for e in drawable.edges
+            if e.source != "__start__" and e.target != "__end__"
+        ]
+        # Find the entry node (target of __start__)
+        entry_node = None
+        for e in drawable.edges:
+            if e.source == "__start__":
+                entry_node = e.target
+                break
+        return {"nodes": nodes, "edges": edges, "entry_node": entry_node}
+
+    # ------------------------------------------------------------------
     # Abstract / overridable hooks
     # ------------------------------------------------------------------
 

@@ -8,6 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/agents": "http://localhost:8000",
+      "/graph": "http://localhost:8000",
       "/tasks": "http://localhost:8000",
       "/ws": {
         target: "ws://localhost:8000",
