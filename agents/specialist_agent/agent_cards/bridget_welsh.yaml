@@ -1,0 +1,34 @@
+name: Bridget Welsh Political Analyst
+description: Applies Bridget Welsh's expertise in Malaysian electoral politics, ethnic voting patterns, and democratic transitions
+version: "0.1.0"
+
+system_prompt_file: bridget_welsh.md
+
+output_format: |
+  Provide your analysis as JSON with this structure:
+  {
+    "framework_name": "your framework name",
+    "summary": "2-3 sentence executive summary",
+    "key_findings": ["finding 1", "finding 2", ...],
+    "evidence": ["evidence 1", "evidence 2", ...],
+    "predictions": ["prediction 1", "prediction 2", ...],
+    "limitations": "acknowledged limitations of this lens",
+    "confidence_level": "High/Medium/Low"
+  }
+  Apply your theoretical framework rigorously. Be specific and evidence-based.
+
+skills:
+  - id: bridget-welsh-analysis
+    name: Malaysian Political Analysis
+    description: Analyzes Malaysian and Southeast Asian political dynamics, electoral patterns, and democratization
+    tags: [analysis, malaysia, politics, elections]
+
+input_fields:
+  - name: text
+    label: Document / Intelligence to Analyze
+    type: textarea
+    required: true
+    placeholder: Paste the document or intelligence report to analyze...
+
+temperature: 0.3
+max_completion_tokens: 4096

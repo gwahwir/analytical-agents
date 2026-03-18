@@ -1,0 +1,34 @@
+name: Peripheral Scanner Analyst
+description: Detects blind spots, uncited intelligence, and overlooked signals at the periphery of analysis
+version: "0.1.0"
+
+system_prompt_file: peripheral_scan.md
+
+output_format: |
+  Provide your analysis as JSON with this structure:
+  {
+    "framework_name": "your framework name",
+    "summary": "2-3 sentence executive summary",
+    "key_findings": ["finding 1", "finding 2", ...],
+    "evidence": ["evidence 1", "evidence 2", ...],
+    "predictions": ["prediction 1", "prediction 2", ...],
+    "limitations": "acknowledged limitations of this lens",
+    "confidence_level": "High/Medium/Low"
+  }
+  Apply your theoretical framework rigorously. Be specific and evidence-based.
+
+skills:
+  - id: peripheral-scan-analysis
+    name: Peripheral Scan Analysis
+    description: Identifies overlooked signals, blind spots, and uncited intelligence in existing analysis
+    tags: [analysis, peripheral, blind-spots, signals]
+
+input_fields:
+  - name: text
+    label: Document / Intelligence to Analyze
+    type: textarea
+    required: true
+    placeholder: Paste the document or intelligence report to analyze...
+
+temperature: 0.3
+max_completion_tokens: 4096

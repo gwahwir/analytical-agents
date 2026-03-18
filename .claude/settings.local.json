@@ -18,7 +18,16 @@
       "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\")",
       "Bash(npm --version)",
       "Bash(npm install:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python -c \"\nfrom agents.echo.graph import build_echo_graph\ng = build_echo_graph\\(\\)\ndg = g.get_graph\\(\\)\nprint\\('Nodes:'\\)\nfor n in dg.nodes:\n    print\\(f'  id={n.id!r} name={n.name!r}'\\)\nprint\\('Edges:'\\)\nfor e in dg.edges:\n    print\\(f'  source={e.source!r} target={e.target!r}'\\)\n\" 2>&1)",
+      "Bash(git add:*)",
+      "Bash(cd:*)",
+      "Bash(ls:*)",
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(cp:*)"
     ]
   }
 }

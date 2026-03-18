@@ -80,7 +80,7 @@ async def check_relevancy(state: RelevancyState, config: RunnableConfig) -> dict
             },
         ],
         temperature=0.1,
-        max_tokens=2048,
+        max_completion_tokens=2048,
     )
     raw = response.choices[0].message.content
     try:

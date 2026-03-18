@@ -56,7 +56,7 @@ async def summarize(state: SummarizerState, config: RunnableConfig) -> dict[str,
             {"role": "user", "content": state["input"]},
         ],
         temperature=0.3,
-        max_tokens=256,
+        max_completion_tokens=256,
     )
 
     summary = response.choices[0].message.content or ""

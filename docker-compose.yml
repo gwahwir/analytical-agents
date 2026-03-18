@@ -164,6 +164,58 @@ services:
       retries: 5
       start_period: 10s
 
+  # ── Lead Analyst Agent ─────────────────────────────────────────────────────
+  lead-analyst:
+    build:
+      context: .
+      dockerfile: Dockerfile.lead-analyst
+    ports:
+      - "8005:8005"
+    environment:
+      - LOG_LEVEL=INFO
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - LEAD_ANALYST_AGENT_URL=http://lead-analyst:8005
+      - SUB_AGENT_A_URL=${SUB_AGENT_A_URL:-}
+      - SUB_AGENT_B_URL=${SUB_AGENT_B_URL:-}
+      - SUB_AGENT_C_URL=${SUB_AGENT_C_URL:-}
+    networks:
+      - mc-net
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8005/.well-known/agent-card.json').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Specialist Agent ───────────────────────────────────────────────────────
+  specialist:
+    build:
+      context: .
+      dockerfile: Dockerfile.specialist
+    ports:
+      - "8006:8006"
+    environment:
+      - LOG_LEVEL=INFO
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - SPECIALIST_AGENT_URL=http://specialist:8006
+    networks:
+      - mc-net
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8006/').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # ── React Dashboard ────────────────────────────────────────────────────────
   dashboard:
     build:

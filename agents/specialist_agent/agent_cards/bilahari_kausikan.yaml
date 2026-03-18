@@ -1,0 +1,34 @@
+name: Bilahari Kausikan Analyst
+description: Applies Bilahari Kausikan's small state strategy and clinical realism to geopolitical analysis
+version: "0.1.0"
+
+system_prompt_file: bilahari_kausikan.md
+
+output_format: |
+  Provide your analysis as JSON with this structure:
+  {
+    "framework_name": "your framework name",
+    "summary": "2-3 sentence executive summary",
+    "key_findings": ["finding 1", "finding 2", ...],
+    "evidence": ["evidence 1", "evidence 2", ...],
+    "predictions": ["prediction 1", "prediction 2", ...],
+    "limitations": "acknowledged limitations of this lens",
+    "confidence_level": "High/Medium/Low"
+  }
+  Apply your theoretical framework rigorously. Be specific and evidence-based.
+
+skills:
+  - id: bilahari-kausikan-analysis
+    name: Small State Strategy Analysis
+    description: Analyzes scenarios through small state diplomacy and clinical realism
+    tags: [analysis, small-state, diplomacy, realism]
+
+input_fields:
+  - name: text
+    label: Document / Intelligence to Analyze
+    type: textarea
+    required: true
+    placeholder: Paste the document or intelligence report to analyze...
+
+temperature: 0.3
+max_completion_tokens: 4096

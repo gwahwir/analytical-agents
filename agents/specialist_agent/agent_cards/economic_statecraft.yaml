@@ -1,0 +1,34 @@
+name: Economic Statecraft Analyst
+description: Applies economic statecraft, weaponized interdependence, sanctions, and development finance frameworks to analyze geopolitical-economic scenarios
+version: "0.1.0"
+
+system_prompt_file: economic_statecraft.md
+
+output_format: |
+  Provide your analysis as JSON with this structure:
+  {
+    "framework_name": "your framework name",
+    "summary": "2-3 sentence executive summary",
+    "key_findings": ["finding 1", "finding 2", ...],
+    "evidence": ["evidence 1", "evidence 2", ...],
+    "predictions": ["prediction 1", "prediction 2", ...],
+    "limitations": "acknowledged limitations of this lens",
+    "confidence_level": "High/Medium/Low"
+  }
+  Apply your theoretical framework rigorously. Be specific and evidence-based.
+
+skills:
+  - id: economic-statecraft-analysis
+    name: Economic Statecraft Analysis
+    description: Analyzes scenarios through weaponized interdependence, sanctions effectiveness, development finance, and economic coercion frameworks
+    tags: [analysis, economic-statecraft, sanctions, interdependence, geopolitics]
+
+input_fields:
+  - name: text
+    label: Document / Intelligence to Analyze
+    type: textarea
+    required: true
+    placeholder: Paste the document or intelligence report to analyze...
+
+temperature: 0.3
+max_completion_tokens: 4096

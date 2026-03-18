@@ -14,6 +14,7 @@ import TaskLauncher from "./components/TaskLauncher";
 import TaskBoard from "./components/TaskBoard";
 import TaskHistory from "./components/TaskHistory";
 import TaskDetailDrawer from "./components/TaskDetailDrawer";
+import AgentDetailDrawer from "./components/AgentDetailDrawer";
 import AgentFlowDiagram from "./components/AgentFlowDiagram";
 import { fetchAgents, fetchGraph, fetchTasks, deleteTask, deleteAllTasks } from "./hooks/useApi";
 
@@ -22,6 +23,7 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [graphData, setGraphData] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [selectedAgent, setSelectedAgent] = useState(null);
   const [tab, setTab] = useState("flow");
 
   const loadAgents = useCallback(() => {
@@ -102,9 +104,9 @@ function App() {
                 fontSize: 14,
               }}
             >
-              MC
+              AMC
             </Box>
-            <Title order={4}>Mission Control</Title>
+            <Title order={4}>Agents Mission Control</Title>
           </Group>
           <Group gap="xs">
             <Badge variant="dot" color={onlineCount > 0 ? "green" : "red"} size="lg">
@@ -117,7 +119,7 @@ function App() {
       <AppShell.Main>
         <Box maw={1200} mx="auto">
           <Box mb="xl">
-            <AgentPanel onSelectAgent={() => {}} />
+            <AgentPanel onSelectAgent={setSelectedAgent} />
           </Box>
 
           <Box mb="xl">
@@ -155,6 +157,11 @@ function App() {
         task={selectedTask}
         onClose={() => setSelectedTask(null)}
         onCancelled={handleTaskCancelled}
+      />
+
+      <AgentDetailDrawer
+        agent={selectedAgent}
+        onClose={() => setSelectedAgent(null)}
       />
     </AppShell>
   );

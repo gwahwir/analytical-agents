@@ -250,7 +250,7 @@ async def cancel_task_endpoint(agent_id: str, task_id: str) -> dict[str, Any]:
 
     logger.info("task_cancel", agent_id=agent_id, task_id=task_id, instance=record.instance_url)
 
-    client = A2AClient(record.instance_url)
+    client = A2AClient(record.instance_url,timeout=300)
     try:
         await client.cancel_task(task_id)
     except A2AError as e:

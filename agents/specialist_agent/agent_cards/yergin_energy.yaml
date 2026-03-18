@@ -1,0 +1,34 @@
+name: Yergin Energy Geopolitics Analyst
+description: Applies Daniel Yergin's energy security and resource geopolitics frameworks
+version: "0.1.0"
+
+system_prompt_file: yergin_energy.md
+
+output_format: |
+  Provide your analysis as JSON with this structure:
+  {
+    "framework_name": "your framework name",
+    "summary": "2-3 sentence executive summary",
+    "key_findings": ["finding 1", "finding 2", ...],
+    "evidence": ["evidence 1", "evidence 2", ...],
+    "predictions": ["prediction 1", "prediction 2", ...],
+    "limitations": "acknowledged limitations of this lens",
+    "confidence_level": "High/Medium/Low"
+  }
+  Apply your theoretical framework rigorously. Be specific and evidence-based.
+
+skills:
+  - id: yergin-energy-analysis
+    name: Energy Geopolitics Analysis
+    description: Analyzes scenarios through energy security, resource competition, and energy transition frameworks
+    tags: [analysis, energy, geopolitics, resources]
+
+input_fields:
+  - name: text
+    label: Document / Intelligence to Analyze
+    type: textarea
+    required: true
+    placeholder: Paste the document or intelligence report to analyze...
+
+temperature: 0.3
+max_completion_tokens: 4096

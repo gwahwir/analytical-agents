@@ -26,6 +26,8 @@ python -m agents.echo.server
 OPENAI_API_KEY=sk-... python -m agents.summarizer.server
 OPENAI_API_KEY=sk-... python -m agents.relevancy.server
 OPENAI_API_KEY=sk-... python -m agents.extraction_agent.server
+python -m agents.lead_analyst.server
+OPENAI_API_KEY=sk-... python -m agents.specialist_agent.server
 
 # Run everything locally (starts control plane, all agents, and dashboard)
 bash run-local.sh
@@ -80,6 +82,8 @@ LangGraph agents wrapped with `a2a-sdk` HTTP servers. Each agent:
 | Summarizer (`agents/summarizer/`) | 8002 | `summarizer` | Summarizes text using OpenAI LLM |
 | Relevancy (`agents/relevancy/`) | 8003 | `relevancy` | Assesses text relevancy to a question, returns JSON verdict |
 | Extraction (`agents/extraction_agent/`) | 8004 | `extraction` | Extracts structured entities/events/relationships from text |
+| Lead Analyst (`agents/lead_analyst/`) | 8005 | `lead-analyst` | Orchestrator that fans out to 3 sub-agents via A2A and aggregates results |
+| Specialist (`agents/specialist_agent/`) | 8006 | per-YAML | Multi-agent-per-deployment: hosts 16 LLM specialists (2 utility + 14 analytical frameworks) from YAML configs |
 
 Each agent has its own README.md with detailed docs.
 
@@ -107,6 +111,8 @@ Each agent reads its own specific env var for its externally-reachable URL, fall
 | `SUMMARIZER_AGENT_URL` | Summarizer | `http://localhost:8002` |
 | `RELEVANCY_AGENT_URL` | Relevancy | `http://localhost:8003` |
 | `EXTRACTION_AGENT_URL` | Extraction | `http://localhost:8004` |
+| `LEAD_ANALYST_AGENT_URL` | Lead Analyst | `http://localhost:8005` |
+| `SPECIALIST_AGENT_URL` | Specialist | `http://localhost:8006` |
 
 ### Shared Agent Variables
 
@@ -117,6 +123,10 @@ Each agent reads its own specific env var for its externally-reachable URL, fall
 | `OPENAI_BASE_URL` | OpenAI default | Custom OpenAI-compatible base URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | LLM model for LLM-based agents |
 | `DOWNSTREAM_AGENT_URL` | None | Echo agent only — URL of downstream agent to forward output to |
+| `SUB_AGENT_A_URL` | None | Lead Analyst only — URL of downstream Sub-Agent A |
+| `SUB_AGENT_B_URL` | None | Lead Analyst only — URL of downstream Sub-Agent B |
+| `SUB_AGENT_C_URL` | None | Lead Analyst only — URL of downstream Sub-Agent C |
+| `SPECIALIST_AGENT_PORT` | `8006` | Specialist only — port to listen on |
 
 ## Tests
 
