@@ -20,11 +20,15 @@ export default function AgentPanel({ onSelectAgent }) {
 
   return (
     <div>
-      <Title order={3} mb="md">
-        Agents
+      <Title
+        order={3}
+        mb="md"
+        style={{ textTransform: "uppercase", letterSpacing: "2px", fontSize: 16 }}
+      >
+        [ AGENTS ]
       </Title>
       {error && (
-        <Alert color="red" mb="sm">
+        <Alert color="red" mb="sm" style={{ borderLeftColor: "var(--hud-red)" }}>
           Failed to load agents: {error}
         </Alert>
       )}
@@ -34,8 +38,9 @@ export default function AgentPanel({ onSelectAgent }) {
         ))}
       </SimpleGrid>
       {agents.length === 0 && !error && (
-        <Text size="sm" c="dimmed">
-          No agents registered.
+        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>
+          No agents registered
+          <span style={{ animation: "blink-cursor 1s step-end infinite" }}>_</span>
         </Text>
       )}
     </div>

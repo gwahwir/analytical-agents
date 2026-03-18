@@ -18,15 +18,32 @@ export default function AgentFlowDiagram({ graphData }) {
   );
 
   if (!graphData) {
-    return <Text c="dimmed" size="sm">Loading graph...</Text>;
+    return (
+      <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>
+        Loading graph
+        <span style={{ animation: "blink-cursor 1s step-end infinite" }}>_</span>
+      </Text>
+    );
   }
 
   if (graphData.agents?.length === 0) {
-    return <Text c="dimmed" size="sm">No agents online to display.</Text>;
+    return (
+      <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>
+        No agents online to display
+        <span style={{ animation: "blink-cursor 1s step-end infinite" }}>_</span>
+      </Text>
+    );
   }
 
   return (
-    <div style={{ height: 420, background: "var(--mantine-color-dark-8)", borderRadius: 8 }}>
+    <div
+      style={{
+        height: 500,
+        background: "var(--hud-bg-deep)",
+        borderRadius: 0,
+        border: "1px solid var(--hud-border)",
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -38,8 +55,15 @@ export default function AgentFlowDiagram({ graphData }) {
         elementsSelectable={false}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#333" gap={16} />
-        <Controls showInteractive={false} />
+        <Background color="rgba(0, 212, 255, 0.06)" gap={20} />
+        <Controls
+          showInteractive={false}
+          style={{
+            background: "var(--hud-bg-panel)",
+            border: "1px solid var(--hud-border)",
+            borderRadius: 0,
+          }}
+        />
       </ReactFlow>
     </div>
   );

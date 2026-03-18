@@ -6,7 +6,6 @@ import {
   Text,
   Tabs,
   Badge,
-  ActionIcon,
   Box,
 } from "@mantine/core";
 import AgentPanel from "./components/AgentPanel";
@@ -17,6 +16,21 @@ import TaskDetailDrawer from "./components/TaskDetailDrawer";
 import AgentDetailDrawer from "./components/AgentDetailDrawer";
 import AgentFlowDiagram from "./components/AgentFlowDiagram";
 import { fetchAgents, fetchGraph, fetchTasks, deleteTask, deleteAllTasks } from "./hooks/useApi";
+
+function UtcClock() {
+  const [time, setTime] = useState(() => new Date().toISOString().slice(11, 19));
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTime(new Date().toISOString().slice(11, 19));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <Text size="xs" style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px" }}>
+      {time} UTC
+    </Text>
+  );
+}
 
 function App() {
   const [agents, setAgents] = useState([]);
@@ -87,37 +101,76 @@ function App() {
 
   return (
     <AppShell header={{ height: 60 }} padding="md">
-      <AppShell.Header>
+      <AppShell.Header
+        style={{
+          boxShadow: "0 1px 12px rgba(0, 212, 255, 0.08)",
+        }}
+      >
         <Group h="100%" px="md" justify="space-between">
           <Group>
             <Box
-              w={32}
-              h={32}
+              w={36}
+              h={36}
               style={{
-                borderRadius: "var(--mantine-radius-md)",
-                background: "var(--mantine-color-indigo-6)",
+                borderRadius: 0,
+                border: "1px solid var(--hud-cyan)",
+                background: "transparent",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "white",
+                color: "var(--hud-cyan)",
                 fontWeight: 700,
-                fontSize: 14,
+                fontSize: 13,
+                letterSpacing: "1px",
               }}
             >
               AMC
             </Box>
-            <Title order={4}>Agents Mission Control</Title>
+            <Title
+              order={4}
+              style={{
+                textTransform: "uppercase",
+                letterSpacing: "2px",
+                color: "var(--hud-text-primary)",
+                fontSize: 14,
+              }}
+            >
+              [ AGENTS MISSION CONTROL ]
+            </Title>
           </Group>
-          <Group gap="xs">
-            <Badge variant="dot" color={onlineCount > 0 ? "green" : "red"} size="lg">
-              {onlineCount}/{agents.length} agents online
+          <Group gap="md">
+            <UtcClock />
+            <Badge
+              variant="dot"
+              color={onlineCount > 0 ? "hud-green" : "hud-red"}
+              size="lg"
+              styles={{
+                root: {
+                  "--badge-dot-size": "8px",
+                },
+              }}
+              leftSection={
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    backgroundColor: onlineCount > 0 ? "var(--hud-green)" : "var(--hud-red)",
+                    display: "inline-block",
+                    animation: "pulse-glow 2s ease-in-out infinite",
+                    color: onlineCount > 0 ? "var(--hud-green)" : "var(--hud-red)",
+                  }}
+                />
+              }
+            >
+              {onlineCount}/{agents.length} AGENTS ONLINE
             </Badge>
           </Group>
         </Group>
       </AppShell.Header>
 
       <AppShell.Main>
-        <Box maw={1200} mx="auto">
+        <Box maw={1600} mx="auto">
           <Box mb="xl">
             <AgentPanel onSelectAgent={setSelectedAgent} />
           </Box>
@@ -128,9 +181,9 @@ function App() {
 
           <Tabs value={tab} onChange={setTab}>
             <Tabs.List mb="md">
-              <Tabs.Tab value="flow">Agent Flow</Tabs.Tab>
-              <Tabs.Tab value="board">Task Board</Tabs.Tab>
-              <Tabs.Tab value="history">History</Tabs.Tab>
+              <Tabs.Tab value="flow">[01] TOPOLOGY</Tabs.Tab>
+              <Tabs.Tab value="board">[02] TASK BOARD</Tabs.Tab>
+              <Tabs.Tab value="history">[03] HISTORY</Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel value="flow">

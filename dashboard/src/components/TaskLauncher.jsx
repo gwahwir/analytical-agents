@@ -27,7 +27,6 @@ export default function TaskLauncher({ agents, graphData, onTaskCreated }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Get input_fields for the selected agent from graph data
   const inputFields = useMemo(() => {
     if (!agentId || !graphData?.agents) return DEFAULT_FIELDS;
     const agentGraph = graphData.agents.find((a) => a.id === agentId);
@@ -59,8 +58,6 @@ export default function TaskLauncher({ agents, graphData, onTaskCreated }) {
     setLoading(true);
     setError(null);
     try {
-      // If only one field named "text", send its value directly.
-      // Otherwise, serialize all fields as JSON.
       let payload;
       if (inputFields.length === 1 && inputFields[0].name === "text") {
         payload = (fields.text || "").trim();
@@ -88,8 +85,12 @@ export default function TaskLauncher({ agents, graphData, onTaskCreated }) {
 
   return (
     <div>
-      <Title order={3} mb="md">
-        Launch Task
+      <Title
+        order={3}
+        mb="md"
+        style={{ textTransform: "uppercase", letterSpacing: "2px", fontSize: 16 }}
+      >
+        [ DISPATCH TASK ]
       </Title>
       <form onSubmit={handleSubmit}>
         <Stack gap="sm">
@@ -128,14 +129,29 @@ export default function TaskLauncher({ agents, graphData, onTaskCreated }) {
               type="submit"
               loading={loading}
               disabled={!canSubmit}
+              variant="outline"
+              style={{
+                borderColor: "var(--hud-cyan)",
+                color: "var(--hud-cyan)",
+                background: "transparent",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(0, 212, 255, 0.1)";
+                e.currentTarget.style.textShadow = "0 0 8px rgba(0, 212, 255, 0.5)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.textShadow = "none";
+              }}
             >
-              Send
+              EXECUTE
             </Button>
           </Group>
         </Stack>
       </form>
       {error && (
-        <Alert color="red" mt="sm">
+        <Alert color="red" mt="sm" style={{ borderLeftColor: "var(--hud-red)" }}>
           {error}
         </Alert>
       )}

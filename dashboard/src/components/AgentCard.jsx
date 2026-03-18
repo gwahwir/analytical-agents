@@ -6,20 +6,51 @@ export default function AgentCard({ agent, onSelect }) {
   const onlineInstances = instances.filter((i) => i.status === "online");
   const totalActive = instances.reduce((sum, i) => sum + (i.active_tasks || 0), 0);
 
+  const statusColor = isOnline ? "var(--hud-green)" : "var(--hud-red)";
+
   return (
     <Card
-      shadow="sm"
       padding="md"
-      withBorder
       onClick={() => onSelect(agent)}
-      style={{ cursor: "pointer" }}
+      style={{
+        cursor: "pointer",
+        position: "relative",
+        transition: "border-color 0.2s, box-shadow 0.2s",
+        animation: "fade-in-up 0.3s ease-out",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "var(--hud-cyan)";
+        e.currentTarget.style.boxShadow = "0 0 12px rgba(0, 212, 255, 0.15)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--hud-border)";
+        e.currentTarget.style.boxShadow = "none";
+      }}
     >
+      {/* Corner bracket decoration */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: 12,
+          height: 12,
+          borderTop: "2px solid var(--hud-cyan)",
+          borderLeft: "2px solid var(--hud-cyan)",
+        }}
+      />
+
       <Group justify="space-between" mb="xs">
-        <Text fw={600} size="lg" style={{ flex: 1, minWidth: 0 }} lineClamp={1}>
+        <Text
+          fw={600}
+          size="lg"
+          style={{ flex: 1, minWidth: 0, color: "var(--hud-text-primary)" }}
+          lineClamp={1}
+        >
           {agent.name}
         </Text>
         <Badge
-          color={isOnline ? "green" : "red"}
+          color={isOnline ? "hud-green" : "hud-red"}
           variant="light"
           size="sm"
           leftSection={
@@ -28,8 +59,10 @@ export default function AgentCard({ agent, onSelect }) {
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                backgroundColor: isOnline ? "var(--mantine-color-green-5)" : "var(--mantine-color-red-5)",
+                backgroundColor: statusColor,
                 display: "inline-block",
+                animation: "pulse-glow 2s ease-in-out infinite",
+                color: statusColor,
               }}
             />
           }
@@ -38,7 +71,7 @@ export default function AgentCard({ agent, onSelect }) {
         </Badge>
       </Group>
 
-      <Text size="sm" c="dimmed" lineClamp={2} mb="sm">
+      <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }} lineClamp={2} mb="sm">
         {agent.description}
       </Text>
 
@@ -46,12 +79,28 @@ export default function AgentCard({ agent, onSelect }) {
         <Group gap="xs">
           {agent.skills?.length > 0 &&
             agent.skills.slice(0, 3).map((skill) => (
-              <Badge key={skill.id} variant="default" size="xs">
+              <Badge
+                key={skill.id}
+                variant="outline"
+                size="xs"
+                style={{
+                  borderColor: "var(--hud-border)",
+                  color: "var(--hud-text-dimmed)",
+                  textTransform: "uppercase",
+                }}
+              >
                 {skill.name}
               </Badge>
             ))}
           {agent.skills?.length > 3 && (
-            <Badge variant="default" size="xs">
+            <Badge
+              variant="outline"
+              size="xs"
+              style={{
+                borderColor: "var(--hud-border)",
+                color: "var(--hud-text-dimmed)",
+              }}
+            >
               +{agent.skills.length - 3}
             </Badge>
           )}
@@ -59,12 +108,12 @@ export default function AgentCard({ agent, onSelect }) {
 
         <Group gap={6}>
           {instances.length > 1 && (
-            <Badge variant="light" color="blue" size="xs">
+            <Badge variant="light" color="hud-cyan" size="xs">
               {onlineInstances.length}/{instances.length} instances
             </Badge>
           )}
           {totalActive > 0 && (
-            <Badge variant="light" color="yellow" size="xs">
+            <Badge variant="light" color="hud-amber" size="xs">
               {totalActive} active
             </Badge>
           )}

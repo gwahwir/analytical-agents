@@ -52,6 +52,16 @@ export async function deleteAllTasks() {
   return res.json();
 }
 
+export async function deregisterAgent(typeName, agentUrl) {
+  const res = await fetch(`${API_BASE}/deregister`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type_name: typeName, agent_url: agentUrl }),
+  });
+  if (!res.ok) throw new Error("Failed to deregister agent");
+  return res.json();
+}
+
 export function subscribeToTask(taskId, onMessage) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${protocol}//${window.location.host}/ws/tasks/${taskId}`);

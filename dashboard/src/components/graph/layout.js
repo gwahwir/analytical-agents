@@ -131,8 +131,8 @@ export function computeLayout(graphData) {
         source: `${agent.id}:${e.source}`,
         target: `${agent.id}:${e.target}`,
         type: "smoothstep",
-        style: { stroke: "#555" },
-        animated: false,
+        style: { stroke: "rgba(0, 212, 255, 0.25)", strokeDasharray: "4 4" },
+        animated: true,
         zIndex: 2,
       });
     });
@@ -145,11 +145,11 @@ export function computeLayout(graphData) {
       source: `${e.source_agent}:${e.source_node}`,
       target: `${e.target_agent}:${e.target_node}`,
       type: "smoothstep",
-      style: { stroke: "var(--mantine-color-orange-5)", strokeDasharray: "6 3" },
+      style: { stroke: "var(--hud-amber)", strokeDasharray: "6 3" },
       animated: true,
       label: "A2A",
-      labelStyle: { fill: "var(--mantine-color-orange-3)", fontSize: 11 },
-      labelBgStyle: { fill: "var(--mantine-color-dark-7)" },
+      labelStyle: { fill: "var(--hud-amber)", fontSize: 11 },
+      labelBgStyle: { fill: "var(--hud-bg-deep)" },
       labelBgPadding: [6, 3],
       zIndex: 3,
     });
