@@ -14,15 +14,19 @@ Nodes (dynamically generated):
 from __future__ import annotations
 
 import json
+import logging
 import operator
 import os
 from typing import Annotated, Any, TypedDict
 
+import openai
 from langchain_core.runnables import RunnableConfig
 from langfuse import observe
 from langgraph.graph import END, StateGraph
 
 from agents.lead_analyst.config import SubAgentConfig
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -215,9 +219,9 @@ def _build_aggregation_prompt(input_text: str, results: list[tuple[str, str]]) -
                 for f in analysis["key_findings"]:
                     parts.append(f"- {f}")
                 parts.append("")
-            if analysis.get("evidence"):
+            if analysis.get("evidence_cited"):
                 parts.append("**Evidence:**")
-                for e in analysis["evidence"]:
+                for e in analysis["evidence_cited"]:
                     parts.append(f"- {e}")
                 parts.append("")
             if analysis.get("predictions"):
@@ -256,7 +260,12 @@ def _make_aggregate_node(
         context_id = config["configurable"].get("context_id")
         executor.check_cancelled(task_id)
 
-        results = [r for r in state.get("results", []) if not r[1].startswith("[Error")]
+        all_results = state.get("results", [])
+        for label, text in all_results:
+            if text.startswith("[Error"):
+                logger.warning("Sub-agent %s failed in task %s: %s", label, task_id, text)
+
+        results = [(label, text) for label, text in all_results if not text.startswith("[Error")]
         if not results:
             return {"output": "No sub-agent results available."}
 
@@ -276,18 +285,26 @@ def _make_aggregate_node(
         client = AsyncOpenAI(**openai_kwargs)
 
         effective_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        resp = await client.chat.completions.create(
-            model=effective_model,
-            messages=[
-                {"role": "system", "content": effective_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temperature,
-            max_completion_tokens=max_completion_tokens,
-            name=name
-        )
-
-        return {"output": resp.choices[0].message.content or ""}
+        try:
+            resp = await client.chat.completions.create(
+                model=effective_model,
+                messages=[
+                    {"role": "system", "content": effective_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+                name=name,
+            )
+            return {"output": resp.choices[0].message.content or ""}
+        except openai.APIError as e:
+            logger.error(
+                "Lead analyst aggregation LLM failed task_id=%s, falling back to concat: %s",
+                task_id,
+                e,
+            )
+            aggregated = "\n\n---\n\n".join(text for _, text in results)
+            return {"output": aggregated}
 
     return aggregate
 

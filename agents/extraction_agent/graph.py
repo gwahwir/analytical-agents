@@ -1,23 +1,45 @@
-"""Relevancy agent built with LangGraph.
+"""Extraction agent built with LangGraph.
 
-Takes a blob of text and a question, checks with an LLM whether the
-text is relevant to the question, and returns a structured JSON result.
+Takes a blob of text and uses an LLM to extract structured information
+(entities, events, relationships, metadata) and returns a structured JSON result.
 
 Nodes:
-1. ``parse_input``       – extract text and question from JSON input
-2. ``check_relevancy``   – call LLM to assess relevancy
-3. ``format_response``   – parse LLM output into structured JSON
+1. ``parse_input``       – extract text from JSON input
+2. ``extract_using_llm`` – call LLM to perform structured extraction
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, TypedDict
 
+import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.types import RetryPolicy
+
+try:
+    from langfuse.openai import AsyncOpenAI
+except ImportError:
+    from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
+
+# Module-level client — instantiated once, reused across all requests.
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        kwargs: dict[str, Any] = {"api_key": os.getenv("OPENAI_API_KEY")}
+        base_url = os.getenv("OPENAI_BASE_URL")
+        if base_url:
+            kwargs["base_url"] = base_url
+        _openai_client = AsyncOpenAI(**kwargs)
+    return _openai_client
 
 
 class ExtractionState(TypedDict):
@@ -28,14 +50,14 @@ class ExtractionState(TypedDict):
 
 
 async def parse_input(state: ExtractionState, config: RunnableConfig) -> dict[str, Any]:
-    """Extract text and question from the JSON input."""
+    """Extract text from the JSON input."""
     executor = config["configurable"]["executor"]
     task_id = config["configurable"]["task_id"]
     executor.check_cancelled(task_id)
 
     try:
         data = json.loads(state["input"])
-        print(data)
+        logger.debug("parse_input parsed JSON keys=%s task_id=%s", list(data.keys()), task_id)
         return {
             "text": data.get("text", "")
         }
@@ -44,22 +66,15 @@ async def parse_input(state: ExtractionState, config: RunnableConfig) -> dict[st
 
 
 async def extract_using_llm(state: ExtractionState, config: RunnableConfig) -> dict[str, Any]:
-    """Call LLM to determine if the text is relevant to the question."""
+    """Call LLM to extract structured information from the text."""
     executor = config["configurable"]["executor"]
     task_id = config["configurable"]["task_id"]
     executor.check_cancelled(task_id)
 
-    from openai import AsyncOpenAI
-
-    openai_kwargs: dict[str, Any] = {}
-    base_url = os.getenv("OPENAI_BASE_URL")
-    api_key = os.getenv("OPENAI_API_KEY")
-    if base_url:
-        openai_kwargs["base_url"] = base_url
-    client = AsyncOpenAI(api_key=api_key, **openai_kwargs)
-
+    client = _get_client()
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    print("Processing new job")
+    logger.debug("extract_using_llm starting task_id=%s model=%s", task_id, model)
+
     try:
         response = await client.chat.completions.create(
             model=model,
@@ -135,11 +150,11 @@ async def extract_using_llm(state: ExtractionState, config: RunnableConfig) -> d
                 },
             ],
             temperature=0.1,
-            max_completion_tokens=60000,
+            max_completion_tokens=4096,
             timeout=300,
         )
         raw = response.choices[0].message.content
-        print(raw)
+        logger.debug("extract_using_llm got response task_id=%s", task_id)
         try:
             parsed = json.loads(raw)
             result = parsed
@@ -147,43 +162,25 @@ async def extract_using_llm(state: ExtractionState, config: RunnableConfig) -> d
             result = {}
 
         return {"output": json.dumps(result, indent=2)}
+    except openai.RateLimitError as e:
+        logger.warning("extract_using_llm rate limited task_id=%s: %s", task_id, e)
+        return {"output": json.dumps({"error": "Rate limit reached — retry later"})}
+    except openai.APIError as e:
+        logger.error("extract_using_llm API error task_id=%s: %s", task_id, e, exc_info=True)
+        return {"output": json.dumps({"error": str(e)})}
     except Exception as e:
-        print(e)
-        return e
-
-
-# async def format_response(state: RelevancyState, config: RunnableConfig) -> dict[str, Any]:
-#     """Parse the LLM response into structured JSON output."""
-#     executor = config["configurable"]["executor"]
-#     task_id = config["configurable"]["task_id"]
-#     executor.check_cancelled(task_id)
-
-#     raw = state["llm_response"].strip()
-
-#     # Try to parse JSON from the LLM response
-#     try:
-#         parsed = json.loads(raw)
-#         result = {
-#             "relevant": bool(parsed.get("relevant", False)),
-#             "confidence": float(parsed.get("confidence", 0.0)),
-#             "reasoning": str(parsed.get("reasoning", "")),
-#             "error": False
-#         }
-#     except (json.JSONDecodeError, ValueError):
-#         result = {
-#             "relevant": False,
-#             "confidence": 0.0,
-#             "reasoning": f"Failed to parse LLM response: {raw}",
-#             "error": True
-#         }
-
-#     return {"output": json.dumps(result, indent=2)}
+        logger.error("extract_using_llm failed task_id=%s: %s", task_id, e, exc_info=True)
+        return {"output": json.dumps({"error": str(e)})}
 
 
 def build_extraction_graph() -> StateGraph:
     graph = StateGraph(ExtractionState)
     graph.add_node("parse_input", parse_input)
-    graph.add_node("extract_using_llm", extract_using_llm, retry_policy=RetryPolicy(max_attempts=3, initial_interval=1.0, backoff_factor=2.0))
+    graph.add_node(
+        "extract_using_llm",
+        extract_using_llm,
+        retry_policy=RetryPolicy(max_attempts=3, initial_interval=1.0, backoff_factor=2.0),
+    )
     graph.set_entry_point("parse_input")
     graph.add_edge("parse_input", "extract_using_llm")
     graph.add_edge("extract_using_llm", END)
