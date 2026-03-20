@@ -21,7 +21,6 @@ from typing import Annotated, Any, TypedDict
 
 import openai
 from langchain_core.runnables import RunnableConfig
-from langfuse import observe
 from langgraph.graph import END, StateGraph
 
 from agents.lead_analyst.config import SubAgentConfig
@@ -238,7 +237,7 @@ async def _select_specialists_with_llm(
     if not api_key:
         raise RuntimeError("No OPENAI_API_KEY — cannot use LLM selection")
 
-    from langfuse.openai import AsyncOpenAI
+    from openai import AsyncOpenAI
 
     openai_kwargs: dict[str, Any] = {"api_key": api_key}
     base_url = os.getenv("OPENAI_BASE_URL")
@@ -443,7 +442,7 @@ def _make_aggregate_node(
 
         user_prompt = _build_aggregation_prompt(state["input"], results)
 
-        from langfuse.openai import AsyncOpenAI
+        from openai import AsyncOpenAI
 
         openai_kwargs: dict[str, Any] = {"api_key": api_key}
         base_url = os.getenv("OPENAI_BASE_URL")

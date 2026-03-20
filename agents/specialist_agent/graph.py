@@ -42,7 +42,7 @@ def build_specialist_graph(
         task_id = config["configurable"]["task_id"]
         executor.check_cancelled(task_id)
 
-        from langfuse.openai import AsyncOpenAI
+        from openai import AsyncOpenAI
 
         openai_kwargs: dict[str, Any] = {}
         base_url = os.getenv("OPENAI_BASE_URL")

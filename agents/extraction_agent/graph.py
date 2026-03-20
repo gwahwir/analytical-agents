@@ -20,10 +20,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.types import RetryPolicy
 
-try:
-    from langfuse.openai import AsyncOpenAI
-except ImportError:
-    from openai import AsyncOpenAI
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 

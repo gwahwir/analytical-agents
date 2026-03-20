@@ -202,7 +202,7 @@ async def _llm_call(system_prompt: str, user_prompt: str, temperature: float = 0
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is required for the probability agent")
 
-    from langfuse.openai import AsyncOpenAI
+    from openai import AsyncOpenAI
 
     openai_kwargs: dict[str, Any] = {"api_key": api_key}
     base_url = os.getenv("OPENAI_BASE_URL")
