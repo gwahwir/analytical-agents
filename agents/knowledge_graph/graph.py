@@ -22,6 +22,8 @@ import logging
 import os
 from typing import Any, Optional, TypedDict
 
+from langchain.chat_models import init_chat_model
+from langchain.embeddings import init_embeddings
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -75,6 +77,21 @@ def _get_mem0_client():
         dsn = required["MEM0_PG_DSN"]
         parsed = urllib.parse.urlparse(dsn)
 
+        langchain_model = init_chat_model(model=os.getenv("OPENAI_SMALL_MODEL"),
+                                          api_key=os.getenv("OPENAI_API_KEY"),
+                                          model_provider="openai",
+                                          base_url=os.getenv("OPENAI_BASE_URL"))
+        
+        langchain_embedding_model = init_embeddings(model=os.getenv("OPENAI_EMBEDDING_MODEL"),
+                                                    provider="ollama",
+                                                    #api_key=os.getenv("OPENAI_API_KEY"),
+                                                    base_url="http://localhost:11434",
+                                                    )
+        # langchain_embedding_model = init_embeddings(model=os.getenv("OPENAI_EMBEDDING_MODEL"),
+        #                                             provider="openai",
+        #                                             api_key=os.getenv("OPENAI_API_KEY"),
+        #                                             base_url=os.getenv("OPENAI_BASE_URL"))
+
         config = {
             "graph_store": {
                 "provider": "neo4j",
@@ -92,20 +109,19 @@ def _get_mem0_client():
                     "password": parsed.password,
                     "host": parsed.hostname,
                     "port": parsed.port or 5432,
+                    "embedding_model_dims": 1024
                 },
             },
             "llm": {
-                "provider": "openai",
+                "provider": "langchain",
                 "config": {
-                    "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                    "api_key": os.getenv("OPENAI_API_KEY", ""),
+                    "model": langchain_model
                 },
             },
             "embedder": {
-                "provider": "openai",
+                "provider": "langchain",
                 "config": {
-                    "model": "text-embedding-3-small",
-                    "api_key": os.getenv("OPENAI_API_KEY", ""),
+                    "model": langchain_embedding_model,
                 },
             },
         }
@@ -214,8 +230,8 @@ async def extract_entities_and_issues(
             model=model,
             messages=messages,
             temperature=0.1,
-            max_completion_tokens=4096,
-            timeout=300,
+            max_completion_tokens=8192,
+            timeout=500,
         )
         raw = response.choices[0].message.content or ""
         parsed = json.loads(raw)
