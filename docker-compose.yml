@@ -3,7 +3,7 @@ version: "3.9"
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16-trixie
     environment:
       POSTGRES_DB: missioncontrol
       POSTGRES_USER: mc
@@ -34,6 +34,48 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+
+  neo4j:
+    image: neo4j:2026.02.2
+    volumes:
+      - /$HOME/neo4j/logs:/logs
+      - /$HOME/neo4j/config:/config
+      - /$HOME/neo4j/data:/data
+      - /$HOME/neo4j/plugins:/plugins
+    environment:
+      - NEO4J_AUTH=mc/mc_password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - mc-net
+
+  # ── pgvector DB (for Knowledge Graph Agent vector storage) ─────────────
+  pgvector-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: mem0_kg
+      POSTGRES_USER: mem0
+      POSTGRES_PASSWORD: mem0_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    networks:
+      - mc-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mem0 -d mem0_kg"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   # ── Control Plane (starts before agents so they can self-register) ────────
   control-plane:
@@ -249,6 +291,41 @@ services:
       retries: 5
       start_period: 10s
 
+  # ── Knowledge Graph Agent ───────────────────────────────────────────────
+  knowledge-graph-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.knowledge-graph
+    ports:
+      - "8008:8008"
+    env_file: ".env"
+    environment:
+      - LOG_LEVEL=INFO
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      - CONTROL_PLANE_URL=http://control-plane:8000
+      - KNOWLEDGE_GRAPH_AGENT_URL=http://knowledge-graph-agent:8008
+      - MEM0_NEO4J_URL=bolt://neo4j:7687
+      - MEM0_NEO4J_USER=mc
+      - MEM0_NEO4J_PASSWORD=mc_password
+      - MEM0_PG_DSN=postgresql://mem0:mem0_password@pgvector-db:5432/mem0_kg
+    networks:
+      - mc-net
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      pgvector-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8008/.well-known/agent-card.json').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   # ── React Dashboard ────────────────────────────────────────────────────────
   dashboard:
     build:
@@ -275,3 +352,4 @@ networks:
 
 volumes:
   postgres_data:
+  pgvector_data:
