@@ -16,6 +16,7 @@ cannot inject error context into the retry prompt.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -207,6 +208,7 @@ async def extract_entities_and_issues(
     else:
         messages.append({"role": "user", "content": f"Text:\n{state['input']}"})
 
+    raw = ""
     try:
         response = await client.chat.completions.create(
             model=model,
@@ -228,7 +230,7 @@ async def extract_entities_and_issues(
         return {
             "extracted": None,
             "retry_count": retry_count + 1,
-            "last_raw": raw if "raw" in locals() else "",
+            "last_raw": raw,
             "last_error": str(e),
         }
     except openai.RateLimitError as e:
@@ -243,6 +245,9 @@ def _route_after_extract(state: KnowledgeGraphState) -> str:
     """Route: retry if extraction failed and retries remain, else proceed."""
     if state.get("extracted") is not None:
         return "store_in_mem0"
+    # Defensive guard: when retry_count >= MAX_RETRIES, the node itself
+    # already sets extracted to an empty dict, so this branch is unreachable
+    # in practice but protects against future logic changes.
     if state.get("retry_count", 0) >= MAX_RETRIES:
         return "store_in_mem0"
     return "extract_entities_and_issues"
@@ -275,7 +280,7 @@ async def store_in_mem0(
         if not name:
             continue
         try:
-            existing = memory.search(name, user_id=KG_USER_ID, limit=1)
+            existing = await asyncio.to_thread(memory.search, name, user_id=KG_USER_ID, limit=1)
             results = existing.get("results", []) if isinstance(existing, dict) else existing
             already_exists = len(results) > 0
 
@@ -284,7 +289,7 @@ async def store_in_mem0(
             if attrs:
                 attr_str = ", ".join(f"{k}: {v}" for k, v in attrs.items())
                 mem_text += f", {attr_str}"
-            memory.add(mem_text, user_id=KG_USER_ID)
+            await asyncio.to_thread(memory.add, mem_text, user_id=KG_USER_ID)
 
             if already_exists:
                 entities_updated.append(name)
@@ -299,7 +304,7 @@ async def store_in_mem0(
         if not name:
             continue
         try:
-            existing = memory.search(name, user_id=KG_USER_ID, limit=1)
+            existing = await asyncio.to_thread(memory.search, name, user_id=KG_USER_ID, limit=1)
             results = existing.get("results", []) if isinstance(existing, dict) else existing
             already_exists = len(results) > 0
 
@@ -313,7 +318,7 @@ async def store_in_mem0(
                 mem_text += f" Severity: {attrs['severity']}."
             if attrs.get("status"):
                 mem_text += f" Status: {attrs['status']}."
-            memory.add(mem_text, user_id=KG_USER_ID)
+            await asyncio.to_thread(memory.add, mem_text, user_id=KG_USER_ID)
 
             if already_exists:
                 issues_updated.append(name)
@@ -331,7 +336,7 @@ async def store_in_mem0(
             continue
         try:
             rel_text = f"{subj} {pred} {obj}"
-            memory.add(rel_text, user_id=KG_USER_ID)
+            await asyncio.to_thread(memory.add, rel_text, user_id=KG_USER_ID)
             relationships_added.append(rel_text)
         except Exception as e:
             logger.warning("store_in_mem0: failed to write relationship task_id=%s error=%s", task_id, e)
