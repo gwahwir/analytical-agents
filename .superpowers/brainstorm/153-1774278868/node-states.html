@@ -1,0 +1,78 @@
+<h2>Node State Visualization</h2>
+<p class="subtitle">Each node in the graph has an execution state. Which visual treatment feels right?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:16px 12px;font-family:monospace;display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">pending</span>
+        <div style="background:#0d1117;border:1px solid #374151;padding:4px 14px;color:#6b7280;font-size:9px;min-width:80px">receive</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">running</span>
+        <div style="background:#0d1117;border:1px solid #f59e0b;padding:4px 14px;color:#f59e0b;font-size:9px;min-width:80px;animation:pulse 2s infinite;box-shadow:0 0 8px rgba(245,158,11,0.4)">analyze <span style="opacity:0.7">⟳</span></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">completed</span>
+        <div style="background:#0d1117;border:1px solid #22c55e;border-left:3px solid #22c55e;padding:4px 14px;color:#4ade80;font-size:9px;min-width:80px">respond ✓</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">failed</span>
+        <div style="background:#1a0a0a;border:1px solid #ef4444;border-left:3px solid #ef4444;padding:4px 14px;color:#f87171;font-size:9px;min-width:80px">validate ✗</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">selected</span>
+        <div style="background:#0d1117;border:2px solid #00d4ff;border-left:3px solid #00d4ff;padding:4px 14px;color:#00d4ff;font-size:9px;min-width:80px;box-shadow:0 0 10px rgba(0,212,255,0.25)">analyze ✓</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Color-coded borders + icons</h3>
+      <p>Gray=pending, amber pulse=running, green left-border+checkmark=done, red left-border+✗=failed. Selected node gets cyan glow. Minimal, fits the existing HUD style.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:16px 12px;font-family:monospace;display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">pending</span>
+        <div style="background:#0d1117;border:1px solid #374151;padding:4px 14px;color:#6b7280;font-size:9px;min-width:80px;opacity:0.5">receive</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">running</span>
+        <div style="background:#1a1200;border:1px solid #f59e0b;padding:4px 14px;color:#fbbf24;font-size:9px;min-width:80px;box-shadow:0 0 12px rgba(245,158,11,0.5)">
+          <span style="display:inline-block;width:6px;height:6px;background:#f59e0b;border-radius:50%;margin-right:4px;vertical-align:middle"></span>analyze
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">completed</span>
+        <div style="background:#0a1a0a;border:1px solid #22c55e;padding:4px 14px;color:#4ade80;font-size:9px;min-width:80px">
+          <span style="display:inline-block;width:6px;height:6px;background:#22c55e;border-radius:50%;margin-right:4px;vertical-align:middle"></span>respond
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">failed</span>
+        <div style="background:#1a0505;border:1px solid #ef4444;padding:4px 14px;color:#f87171;font-size:9px;min-width:80px">
+          <span style="display:inline-block;width:6px;height:6px;background:#ef4444;border-radius:50%;margin-right:4px;vertical-align:middle"></span>validate
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:8px;color:#4b5563;min-width:60px">selected</span>
+        <div style="background:#001a2a;border:2px solid #00d4ff;padding:4px 14px;color:#00d4ff;font-size:9px;min-width:80px;box-shadow:0 0 14px rgba(0,212,255,0.3)">
+          <span style="display:inline-block;width:6px;height:6px;background:#00d4ff;border-radius:50%;margin-right:4px;vertical-align:middle"></span>analyze
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Filled background + dot indicator</h3>
+      <p>Background color tints to match state (dark amber/green/red). Dot badge shows status. Pending nodes faded out. More visually distinct at a glance.</p>
+    </div>
+  </div>
+
+</div>
+
+<style>
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+</style>
+
+<p class="subtitle" style="margin-top:16px">Click a style to select it, then let me know in the terminal.</p>

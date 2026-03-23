@@ -17,7 +17,9 @@ Environment variables:
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -32,6 +34,12 @@ from agents.knowledge_graph.executor import KnowledgeGraphExecutor
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 AGENT_TYPE = "knowledge-graph"
 AGENT_PORT = 8008
@@ -116,4 +124,4 @@ def create_app() -> FastAPI:
 app = create_app()
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=AGENT_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=AGENT_PORT, timeout_graceful_shutdown=15)

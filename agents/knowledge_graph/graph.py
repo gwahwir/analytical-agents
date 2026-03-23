@@ -24,6 +24,7 @@ from typing import Any, Optional, TypedDict
 
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
+from langchain_community.embeddings import JinaEmbeddings
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -82,16 +83,17 @@ def _get_mem0_client():
                                           model_provider="openai",
                                           base_url=os.getenv("OPENAI_BASE_URL"))
         
-        langchain_embedding_model = init_embeddings(model=os.getenv("OPENAI_EMBEDDING_MODEL"),
-                                                    provider="ollama",
-                                                    #api_key=os.getenv("OPENAI_API_KEY"),
-                                                    base_url="http://localhost:11434",
-                                                    )
+        # langchain_embedding_model = init_embeddings(model=os.getenv("OPENAI_EMBEDDING_MODEL"),
+        #                                             provider="ollama",
+        #                                             #api_key=os.getenv("OPENAI_API_KEY"),
+        #                                             base_url="http://localhost:11434",
+        #                                             )
         # langchain_embedding_model = init_embeddings(model=os.getenv("OPENAI_EMBEDDING_MODEL"),
         #                                             provider="openai",
         #                                             api_key=os.getenv("OPENAI_API_KEY"),
         #                                             base_url=os.getenv("OPENAI_BASE_URL"))
-
+        langchain_embedding_model = JinaEmbeddings(model_name="jina-embeddings-v5-text-small",
+                                                    jina_api_key=os.getenv("JINA_API_KEY"))
         config = {
             "graph_store": {
                 "provider": "neo4j",
@@ -193,13 +195,14 @@ async def extract_entities_and_issues(
     executor.check_cancelled(task_id)
 
     retry_count = state.get("retry_count", 0)
+    input_preview = state.get("input", "")[:120].replace("\n", " ")
 
     # If retries are exhausted, produce empty extraction and log warning
     if retry_count >= MAX_RETRIES:
         logger.warning(
-            "extract_entities_and_issues: retries exhausted after %d attempts, "
-            "falling back to empty extraction task_id=%s",
-            MAX_RETRIES, task_id,
+            "[%s] extract_entities_and_issues: retries exhausted after %d attempts, "
+            "falling back to empty extraction",
+            task_id, MAX_RETRIES,
         )
         return {
             "extracted": {"entities": [], "issues": [], "relationships": [], "source_summary": ""},
@@ -209,10 +212,20 @@ async def extract_entities_and_issues(
     client = _get_openai_client()
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+    attempt_label = f"attempt {retry_count + 1}/{MAX_RETRIES}"
+    logger.info(
+        "[%s] extract_entities_and_issues: starting LLM extraction (%s) model=%s input_preview='%s...'",
+        task_id, attempt_label, model, input_preview,
+    )
+
     # Build messages — inject error context on retries
     messages: list[dict] = [{"role": "system", "content": _EXTRACTION_SYSTEM_PROMPT}]
 
     if retry_count > 0 and state.get("last_raw"):
+        logger.info(
+            "[%s] extract_entities_and_issues: retrying after parse error — %s",
+            task_id, state["last_error"],
+        )
         corrective_prefix = (
             f"Your previous response failed to parse as valid JSON.\n"
             f"Parse error: {state['last_error']}\n"
@@ -231,17 +244,24 @@ async def extract_entities_and_issues(
             messages=messages,
             temperature=0.1,
             max_completion_tokens=8192,
-            timeout=500,
+            timeout=60,
         )
         raw = response.choices[0].message.content or ""
         parsed = json.loads(raw)
-        logger.debug("extract_entities_and_issues success task_id=%s retry=%d", task_id, retry_count)
+        n_entities = len(parsed.get("entities", []))
+        n_issues = len(parsed.get("issues", []))
+        n_rels = len(parsed.get("relationships", []))
+        logger.info(
+            "[%s] extract_entities_and_issues: extraction complete — "
+            "%d entities, %d issues, %d relationships",
+            task_id, n_entities, n_issues, n_rels,
+        )
         return {"extracted": parsed, "retry_count": retry_count, "last_error": ""}
 
     except (json.JSONDecodeError, ValueError) as e:
         logger.warning(
-            "extract_entities_and_issues parse error attempt=%d task_id=%s error=%s",
-            retry_count + 1, task_id, e,
+            "[%s] extract_entities_and_issues: parse error on attempt %d/%d — %s",
+            task_id, retry_count + 1, MAX_RETRIES, e,
         )
         return {
             "extracted": None,
@@ -250,10 +270,10 @@ async def extract_entities_and_issues(
             "last_error": str(e),
         }
     except openai.RateLimitError as e:
-        logger.warning("extract_entities_and_issues rate limited task_id=%s: %s", task_id, e)
+        logger.warning("[%s] extract_entities_and_issues: rate limited — %s", task_id, e)
         return {"extracted": {"entities": [], "issues": [], "relationships": [], "source_summary": ""}, "retry_count": retry_count}
     except openai.APIError as e:
-        logger.error("extract_entities_and_issues API error task_id=%s: %s", task_id, e, exc_info=True)
+        logger.error("[%s] extract_entities_and_issues: API error — %s", task_id, e, exc_info=True)
         return {"extracted": {"entities": [], "issues": [], "relationships": [], "source_summary": ""}, "retry_count": retry_count}
 
 
@@ -284,6 +304,14 @@ async def store_in_mem0(
     extracted = state.get("extracted") or {"entities": [], "issues": [], "relationships": [], "source_summary": ""}
     memory = _get_mem0_client()
 
+    n_entities = len(extracted.get("entities", []))
+    n_issues = len(extracted.get("issues", []))
+    n_rels = len(extracted.get("relationships", []))
+    logger.info(
+        "[%s] store_in_mem0: writing to mem0 — %d entities, %d issues, %d relationships",
+        task_id, n_entities, n_issues, n_rels,
+    )
+
     entities_added: list[str] = []
     entities_updated: list[str] = []
     issues_added: list[str] = []
@@ -291,7 +319,8 @@ async def store_in_mem0(
     relationships_added: list[str] = []
 
     # Write entities
-    for entity in extracted.get("entities", []):
+    for i, entity in enumerate(extracted.get("entities", []), 1):
+        executor.check_cancelled(task_id)
         name = entity.get("name", "")
         if not name:
             continue
@@ -309,13 +338,16 @@ async def store_in_mem0(
 
             if already_exists:
                 entities_updated.append(name)
+                logger.info("[%s] store_in_mem0: entity [%d/%d] updated — '%s'", task_id, i, n_entities, name)
             else:
                 entities_added.append(name)
+                logger.info("[%s] store_in_mem0: entity [%d/%d] added — '%s'", task_id, i, n_entities, name)
         except Exception as e:
-            logger.warning("store_in_mem0: failed to write entity=%s task_id=%s error=%s", name, task_id, e)
+            logger.warning("[%s] store_in_mem0: failed to write entity '%s' — %s", task_id, name, e)
 
     # Write issues
-    for issue in extracted.get("issues", []):
+    for i, issue in enumerate(extracted.get("issues", []), 1):
+        executor.check_cancelled(task_id)
         name = issue.get("name", "")
         if not name:
             continue
@@ -338,13 +370,16 @@ async def store_in_mem0(
 
             if already_exists:
                 issues_updated.append(name)
+                logger.info("[%s] store_in_mem0: issue [%d/%d] updated — '%s'", task_id, i, n_issues, name)
             else:
                 issues_added.append(name)
+                logger.info("[%s] store_in_mem0: issue [%d/%d] added — '%s'", task_id, i, n_issues, name)
         except Exception as e:
-            logger.warning("store_in_mem0: failed to write issue=%s task_id=%s error=%s", name, task_id, e)
+            logger.warning("[%s] store_in_mem0: failed to write issue '%s' — %s", task_id, name, e)
 
     # Write relationships
-    for rel in extracted.get("relationships", []):
+    for i, rel in enumerate(extracted.get("relationships", []), 1):
+        executor.check_cancelled(task_id)
         subj = rel.get("subject", "")
         pred = rel.get("predicate", "")
         obj = rel.get("object", "")
@@ -354,8 +389,9 @@ async def store_in_mem0(
             rel_text = f"{subj} {pred} {obj}"
             await asyncio.to_thread(memory.add, rel_text, user_id=KG_USER_ID)
             relationships_added.append(rel_text)
+            logger.info("[%s] store_in_mem0: relationship [%d/%d] added — '%s'", task_id, i, n_rels, rel_text)
         except Exception as e:
-            logger.warning("store_in_mem0: failed to write relationship task_id=%s error=%s", task_id, e)
+            logger.warning("[%s] store_in_mem0: failed to write relationship '%s %s %s' — %s", task_id, subj, pred, obj, e)
 
     diff = {
         "entities": {"added": entities_added, "updated": entities_updated},
@@ -369,6 +405,13 @@ async def store_in_mem0(
         "issues_updated": len(issues_updated),
         "relationships_added": len(relationships_added),
     }
+    logger.info(
+        "[%s] store_in_mem0: complete — +%d/~%d entities, +%d/~%d issues, +%d relationships",
+        task_id,
+        stats["entities_added"], stats["entities_updated"],
+        stats["issues_added"], stats["issues_updated"],
+        stats["relationships_added"],
+    )
     return {"diff": diff, "stats": stats}
 
 
@@ -390,6 +433,8 @@ async def generate_narrative(
 
     client = _get_openai_client()
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    logger.info("[%s] generate_narrative: generating summary narrative model=%s", task_id, model)
 
     try:
         response = await client.chat.completions.create(
@@ -417,10 +462,12 @@ async def generate_narrative(
             max_completion_tokens=256,
         )
         narrative = response.choices[0].message.content or ""
+        logger.info("[%s] generate_narrative: narrative generated (%d chars)", task_id, len(narrative))
     except Exception as e:
-        logger.warning("generate_narrative LLM call failed task_id=%s: %s", task_id, e)
+        logger.warning("[%s] generate_narrative: LLM call failed, using fallback — %s", task_id, e)
         narrative = f"Ingested {stats.get('entities_added', 0)} new entities and {stats.get('issues_added', 0)} new issues."
 
+    logger.info("[%s] generate_narrative: task complete", task_id)
     output = json.dumps({
         "diff": diff,
         "narrative": narrative,

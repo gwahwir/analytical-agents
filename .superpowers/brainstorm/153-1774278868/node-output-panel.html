@@ -1,0 +1,111 @@
+<h2>Node Output Panel</h2>
+<p class="subtitle">When you click a node, its output appears in the right panel. How should it be displayed?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:10px;font-family:monospace;font-size:8px;">
+      <div style="background:#001a2a;border:1px solid #00d4ff;border-top:2px solid #00d4ff;padding:8px;">
+        <div style="color:#00d4ff;letter-spacing:1px;font-size:8px;margin-bottom:6px;display:flex;justify-content:space-between">
+          <span>[ analyze ] OUTPUT</span>
+          <span style="color:#374151;cursor:pointer">✕</span>
+        </div>
+        <pre style="color:#94a3b8;margin:0;white-space:pre-wrap;font-size:7px;line-height:1.6;max-height:130px;overflow:hidden">{
+  "analysis": "Strategic deterrence signals are elevated...",
+  "confidence": 0.87,
+  "frameworks": [
+    "realism",
+    "game-theory"
+  ],
+  "key_risks": [
+    "Escalation ladder miscalculation",
+    "Alliance cohesion under stress"
+  ],
+  "recommendation": "Monitor..."
+}</pre>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Pretty-printed JSON</h3>
+      <p>Syntax-highlighted, indented JSON. Always accurate, works for any node regardless of output shape. Good for developers who want to see raw data.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:10px;font-family:monospace;font-size:8px;">
+      <div style="background:#0d1117;border:1px solid #1e3a4a;border-top:2px solid #00d4ff;padding:8px;">
+        <div style="color:#00d4ff;letter-spacing:1px;font-size:8px;margin-bottom:8px;display:flex;justify-content:space-between">
+          <span>[ analyze ] OUTPUT</span>
+          <span style="color:#374151">✕</span>
+        </div>
+        <div style="margin-bottom:6px">
+          <div style="color:#4b5563;font-size:7px;letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">analysis</div>
+          <div style="color:#e2e8f0;font-size:8px;line-height:1.4">Strategic deterrence signals are elevated. Alliance posture suggests...</div>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <div style="flex:1">
+            <div style="color:#4b5563;font-size:7px;letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">confidence</div>
+            <div style="color:#4ade80;font-size:9px;font-weight:bold">0.87</div>
+          </div>
+          <div style="flex:2">
+            <div style="color:#4b5563;font-size:7px;letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">frameworks</div>
+            <div style="display:flex;gap:3px;flex-wrap:wrap">
+              <span style="background:#001a2a;border:1px solid #1e3a4a;color:#00d4ff;padding:1px 4px;font-size:7px">realism</span>
+              <span style="background:#001a2a;border:1px solid #1e3a4a;color:#00d4ff;padding:1px 4px;font-size:7px">game-theory</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div style="color:#4b5563;font-size:7px;letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">key risks</div>
+          <div style="color:#f87171;font-size:7px;line-height:1.5">• Escalation ladder miscalculation<br>• Alliance cohesion under stress</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Structured key/value display</h3>
+      <p>Parses the JSON and renders each top-level key as a labeled section. Strings as text, numbers highlighted, arrays as tags or bullets. More readable, but requires output to be a flat-ish object.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:10px;font-family:monospace;font-size:8px;">
+      <div style="background:#0d1117;border:1px solid #1e3a4a;border-top:2px solid #00d4ff;padding:8px;">
+        <div style="color:#00d4ff;letter-spacing:1px;font-size:8px;margin-bottom:8px;display:flex;justify-content:space-between">
+          <span>[ analyze ] OUTPUT</span>
+          <div style="display:flex;gap:6px">
+            <span style="color:#00d4ff;border-bottom:1px solid #00d4ff;padding-bottom:1px;font-size:7px">FORMATTED</span>
+            <span style="color:#374151;font-size:7px">RAW</span>
+            <span style="color:#374151">✕</span>
+          </div>
+        </div>
+        <div style="margin-bottom:6px">
+          <div style="color:#4b5563;font-size:7px;text-transform:uppercase;margin-bottom:2px">analysis</div>
+          <div style="color:#e2e8f0;font-size:8px;line-height:1.4">Strategic deterrence signals are elevated...</div>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:4px">
+          <div style="flex:1">
+            <div style="color:#4b5563;font-size:7px;text-transform:uppercase;margin-bottom:2px">confidence</div>
+            <div style="color:#4ade80;font-size:9px;font-weight:bold">0.87</div>
+          </div>
+          <div style="flex:2">
+            <div style="color:#4b5563;font-size:7px;text-transform:uppercase;margin-bottom:2px">frameworks</div>
+            <div style="display:flex;gap:3px">
+              <span style="background:#001a2a;border:1px solid #1e3a4a;color:#00d4ff;padding:1px 4px;font-size:7px">realism</span>
+              <span style="background:#001a2a;border:1px solid #1e3a4a;color:#00d4ff;padding:1px 4px;font-size:7px">game-theory</span>
+            </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid #1e3a4a;margin-top:4px;padding-top:4px">
+          <pre style="color:#4b5563;margin:0;white-space:pre-wrap;font-size:6px;line-height:1.5;max-height:40px;overflow:hidden">// RAW tab would show full JSON here</pre>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Formatted view + Raw tab toggle</h3>
+      <p>Defaults to the structured view (like B), but a "RAW" tab lets you switch to the full JSON. Best of both worlds — readable by default, inspectable when needed.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">Click your preference, then let me know in the terminal.</p>

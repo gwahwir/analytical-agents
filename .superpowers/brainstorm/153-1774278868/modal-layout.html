@@ -1,0 +1,99 @@
+<h2>Task Graph Modal — Layout Options</h2>
+<p class="subtitle">Full-screen modal that opens when you click a task. Which layout feels right?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:12px;font-family:monospace;font-size:10px;">
+      <div style="background:#111827;border:1px solid #1e3a4a;padding:4px 8px;color:#00d4ff;font-size:9px;letter-spacing:1px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <span>[ TASK: abc-123 ] &nbsp; lead-analyst &nbsp; <span style="color:#4ade80">● COMPLETED</span></span>
+        <span style="color:#ef4444;border:1px solid #ef4444;padding:1px 5px;font-size:8px">CANCEL</span>
+      </div>
+      <div style="display:flex;gap:6px;height:160px">
+        <div style="flex:1.6;background:#0d1117;border:1px solid #1e3a4a;display:flex;align-items:center;justify-content:center;position:relative">
+          <span style="color:#1e3a4a;font-size:9px">GRAPH</span>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;gap:8px;align-items:center">
+            <div style="background:#111827;border:1px solid #4ade80;border-left:2px solid #00d4ff;padding:3px 8px;color:#00d4ff;font-size:8px;white-space:nowrap">receive</div>
+            <div style="color:#1e3a4a">—</div>
+            <div style="background:#111827;border:1px solid #4ade80;padding:3px 8px;color:#6ee7b7;font-size:8px;white-space:nowrap">analyze</div>
+            <div style="color:#1e3a4a">—</div>
+            <div style="background:#111827;border:1px solid #4ade80;padding:3px 8px;color:#6ee7b7;font-size:8px;white-space:nowrap">respond</div>
+          </div>
+        </div>
+        <div style="flex:1;background:#0d1117;border:1px solid #1e3a4a;padding:6px;overflow:hidden">
+          <div style="color:#00d4ff;font-size:8px;letter-spacing:1px;margin-bottom:4px;border-bottom:1px solid #1e3a4a;padding-bottom:3px">[ analyze ] OUTPUT</div>
+          <div style="color:#6b7280;font-size:7px;line-height:1.4">{"analysis": "Key risk factors identified...", "confidence": 0.87, "frameworks": ["realism", "game-theory"]}</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Header + Side-by-side</h3>
+      <p>Thin header bar with task metadata. Graph takes 60% width, node output panel always visible on the right (40%). Clean and always ready.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:12px;font-family:monospace;font-size:10px;">
+      <div style="background:#111827;border:1px solid #1e3a4a;padding:4px 8px;color:#00d4ff;font-size:9px;letter-spacing:1px;margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>[ TASK: abc-123 ] &nbsp; lead-analyst &nbsp; <span style="color:#4ade80">● COMPLETED</span></span>
+        <span style="color:#ef4444;border:1px solid #ef4444;padding:1px 5px;font-size:8px">CANCEL</span>
+      </div>
+      <div style="height:100px;background:#0d1117;border:1px solid #1e3a4a;display:flex;align-items:center;justify-content:center;margin-bottom:6px;position:relative">
+        <div style="display:flex;gap:8px;align-items:center">
+          <div style="background:#111827;border:1px solid #4ade80;border-left:2px solid #00d4ff;padding:3px 8px;color:#00d4ff;font-size:8px">receive</div>
+          <div style="color:#1e3a4a">—</div>
+          <div style="background:#111827;border:2px solid #f59e0b;padding:3px 8px;color:#f59e0b;font-size:8px;box-shadow:0 0 6px rgba(245,158,11,0.3)">analyze ▼</div>
+          <div style="color:#1e3a4a">—</div>
+          <div style="background:#111827;border:1px solid #4ade80;padding:3px 8px;color:#6ee7b7;font-size:8px">respond</div>
+        </div>
+      </div>
+      <div style="background:#0d1117;border:1px solid #f59e0b;border-top:2px solid #f59e0b;padding:6px;height:50px;overflow:hidden">
+        <div style="color:#f59e0b;font-size:8px;letter-spacing:1px;margin-bottom:3px">[ analyze ] OUTPUT</div>
+        <div style="color:#6b7280;font-size:7px;line-height:1.4">{"analysis": "Key risk factors identified..."}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Graph on top, output slides up</h3>
+      <p>Graph fills the top area. Clicking a node slides up an output panel from the bottom. More graph space, panel appears on demand.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0a0f1a;padding:12px;font-family:monospace;font-size:10px;">
+      <div style="display:flex;gap:6px;height:180px">
+        <div style="flex:1.8;background:#0d1117;border:1px solid #1e3a4a;display:flex;align-items:center;justify-content:center;position:relative">
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+            <div style="background:#111827;border:1px solid #4ade80;border-left:2px solid #00d4ff;padding:3px 8px;color:#00d4ff;font-size:8px;white-space:nowrap">receive</div>
+            <div style="color:#1e3a4a;font-size:8px">↓</div>
+            <div style="display:flex;gap:4px">
+              <div style="background:#111827;border:1px solid #4ade80;padding:3px 6px;color:#6ee7b7;font-size:7px">spec1</div>
+              <div style="background:#111827;border:1px solid #4ade80;padding:3px 6px;color:#6ee7b7;font-size:7px">spec2</div>
+              <div style="background:#111827;border:2px solid #f59e0b;padding:3px 6px;color:#f59e0b;font-size:7px">spec3</div>
+            </div>
+            <div style="color:#1e3a4a;font-size:8px">↓</div>
+            <div style="background:#111827;border:1px solid #4ade80;padding:3px 8px;color:#6ee7b7;font-size:8px">aggregate</div>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <div style="background:#0d1117;border:1px solid #1e3a4a;padding:6px;font-size:8px">
+            <div style="color:#00d4ff;letter-spacing:1px;margin-bottom:3px">TASK</div>
+            <div style="color:#6b7280;font-size:7px">ID: abc-123</div>
+            <div style="color:#6b7280;font-size:7px">Agent: lead-analyst</div>
+            <div style="color:#4ade80;font-size:7px">● COMPLETED</div>
+          </div>
+          <div style="background:#0d1117;border:1px solid #f59e0b;padding:6px;flex:1;overflow:hidden">
+            <div style="color:#f59e0b;font-size:8px;letter-spacing:1px;margin-bottom:3px">[ spec3 ] OUTPUT</div>
+            <div style="color:#6b7280;font-size:7px;line-height:1.4">{"framework": "game-theory", "analysis": "Strategic...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Graph left, metadata + output right</h3>
+      <p>No top header — graph takes full left column. Right column has task metadata stacked above node output. Better for tall graphs (e.g., lead analyst with many parallel specialists).</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">Click a layout to select it, then let me know in the terminal.</p>
