@@ -86,6 +86,7 @@ LangGraph agents wrapped with `a2a-sdk` HTTP servers. Each agent:
 | Lead Analyst (`agents/lead_analyst/`) | 8005 | per-YAML | Multi-instance orchestrator: hosts N lead analysts from YAML configs, each fans out to sub-agents via A2A and aggregates results |
 | Specialist (`agents/specialist_agent/`) | 8006 | per-YAML | Multi-agent-per-deployment: hosts 16 LLM specialists (2 utility + 14 analytical frameworks) from YAML configs |
 | Probability (`agents/probability_agent/`) | 8007 | `probability-forecaster` | Takes concatenated specialist analyses, performs probability aggregation, disagreement detection, peripheral scanning, and generates structured briefings |
+| Knowledge Graph (`agents/knowledge_graph/`) | 8008 | `knowledge-graph` | Ingests articles/snippets into a persistent knowledge graph of entities and issues via mem0 (Neo4j + pgvector); returns structured diff + narrative |
 
 Each agent has its own README.md with detailed docs.
 
@@ -116,6 +117,7 @@ Each agent reads its own specific env var for its externally-reachable URL, fall
 | `LEAD_ANALYST_AGENT_URL` | Lead Analyst | `http://localhost:8005` |
 | `SPECIALIST_AGENT_URL` | Specialist | `http://localhost:8006` |
 | `PROBABILITY_AGENT_URL` | Probability | `http://localhost:8007` |
+| `KNOWLEDGE_GRAPH_AGENT_URL` | Knowledge Graph | `http://localhost:8008` |
 
 ### Shared Agent Variables
 
@@ -127,6 +129,10 @@ Each agent reads its own specific env var for its externally-reachable URL, fall
 | `OPENAI_MODEL` | `gpt-4o-mini` | LLM model for LLM-based agents |
 | `DOWNSTREAM_AGENT_URL` | None | Echo agent only — URL of downstream agent to forward output to |
 | `SPECIALIST_AGENT_PORT` | `8006` | Specialist only — port to listen on |
+| `MEM0_NEO4J_URL` | None | Neo4j bolt URL (knowledge graph agent only) |
+| `MEM0_NEO4J_USER` | None | Neo4j username (knowledge graph agent only) |
+| `MEM0_NEO4J_PASSWORD` | None | Neo4j password (knowledge graph agent only) |
+| `MEM0_PG_DSN` | None | pgvector-enabled Postgres DSN (knowledge graph agent only, separate from `DATABASE_URL`) |
 
 ## Tests
 
