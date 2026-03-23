@@ -3,7 +3,7 @@ version: "3.9"
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16-trixie
     environment:
       POSTGRES_DB: missioncontrol
       POSTGRES_USER: mc
@@ -57,25 +57,25 @@ services:
     networks:
       - mc-net
 
-  # ── pgvector DB (for Knowledge Graph Agent vector storage) ─────────────
-  pgvector-db:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_DB: mem0_kg
-      POSTGRES_USER: mem0
-      POSTGRES_PASSWORD: mem0_password
-    ports:
-      - "5433:5432"
-    volumes:
-      - pgvector_data:/var/lib/postgresql/data
-    networks:
-      - mc-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mem0 -d mem0_kg"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+  # # ── pgvector DB (for Knowledge Graph Agent vector storage) ─────────────
+  # pgvector-db:
+  #   image: pgvector/pgvector:pg16
+  #   environment:
+  #     POSTGRES_DB: mem0_kg
+  #     POSTGRES_USER: mem0
+  #     POSTGRES_PASSWORD: mem0_password
+  #   ports:
+  #     - "5433:5432"
+  #   volumes:
+  #     - pgvector_data:/var/lib/postgresql/data
+  #   networks:
+  #     - mc-net
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U mem0 -d mem0_kg"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 10s
 
   # ── Control Plane (starts before agents so they can self-register) ────────
   control-plane:
@@ -309,7 +309,7 @@ services:
       - MEM0_NEO4J_URL=bolt://neo4j:7687
       - MEM0_NEO4J_USER=mc
       - MEM0_NEO4J_PASSWORD=mc_password
-      - MEM0_PG_DSN=postgresql://mem0:mem0_password@pgvector-db:5432/mem0_kg
+      - MEM0_PG_DSN=postgresql://mc:mc_password@postgres:5432/missioncontrol
     networks:
       - mc-net
     depends_on:
@@ -317,7 +317,7 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
-      pgvector-db:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8008/.well-known/agent-card.json').raise_for_status()"]

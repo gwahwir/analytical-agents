@@ -29,7 +29,17 @@
       "Bash(wc:*)",
       "Bash(cp:*)",
       "Bash(git check-ignore:*)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "Bash(pip index:*)",
+      "Bash(pip install:*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(tee /tmp/kg_test_output.txt)",
+      "Bash(git:*)",
+      "Bash(echo \"EXIT_CODE: $?\")",
+      "Bash(tee /tmp/pytest_output.txt)",
+      "Read(//tmp/**)",
+      "Bash(grep:*)",
+      "Bash(docker compose:*)"
     ]
   }
 }
