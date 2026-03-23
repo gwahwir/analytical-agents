@@ -307,7 +307,7 @@ services:
       - CONTROL_PLANE_URL=http://control-plane:8000
       - KNOWLEDGE_GRAPH_AGENT_URL=http://knowledge-graph-agent:8008
       - MEM0_NEO4J_URL=bolt://neo4j:7687
-      - MEM0_NEO4J_USER=mc
+      - MEM0_NEO4J_USER=neo4j
       - MEM0_NEO4J_PASSWORD=mc_password
       - MEM0_PG_DSN=postgresql://mc:mc_password@postgres:5432/missioncontrol
     networks:
