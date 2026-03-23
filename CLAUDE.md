@@ -4,6 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+### Setup
+```bash
+# Copy env template and fill in secrets
+cp .env.template .env
+
+# Create and activate virtual environment (or use conda: conda activate mc)
+python -m venv .venv && source .venv/bin/activate  # Linux/macOS
+python -m venv .venv && .venv\Scripts\activate      # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
 ### Python (Control Plane & Agents)
 ```bash
 # Install dependencies
@@ -29,6 +42,7 @@ OPENAI_API_KEY=sk-... python -m agents.extraction_agent.server
 python -m agents.lead_analyst.server
 OPENAI_API_KEY=sk-... python -m agents.specialist_agent.server
 OPENAI_API_KEY=sk-... python -m agents.probability_agent.server
+python -m agents.knowledge_graph.server
 
 # Run everything locally (starts control plane, all agents, and dashboard)
 bash run-local.sh
@@ -127,12 +141,17 @@ Each agent reads its own specific env var for its externally-reachable URL, fall
 | `OPENAI_API_KEY` | None | Required for summarizer, relevancy, and extraction agents |
 | `OPENAI_BASE_URL` | OpenAI default | Custom OpenAI-compatible base URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | LLM model for LLM-based agents |
+| `OPENAI_SMALL_MODEL` | None | Smaller/cheaper model for knowledge graph agent extraction |
+| `OPENAI_EMBEDDING_MODEL` | None | Embedding model for knowledge graph agent (mem0 vector search) |
 | `DOWNSTREAM_AGENT_URL` | None | Echo agent only — URL of downstream agent to forward output to |
 | `SPECIALIST_AGENT_PORT` | `8006` | Specialist only — port to listen on |
 | `MEM0_NEO4J_URL` | None | Neo4j bolt URL (knowledge graph agent only) |
 | `MEM0_NEO4J_USER` | None | Neo4j username (knowledge graph agent only) |
 | `MEM0_NEO4J_PASSWORD` | None | Neo4j password (knowledge graph agent only) |
 | `MEM0_PG_DSN` | None | pgvector-enabled Postgres DSN (knowledge graph agent only, separate from `DATABASE_URL`) |
+| `LANGFUSE_PUBLIC_KEY` | None | Optional — enables Langfuse LLM tracing (all agents via `agents/base/tracing.py`) |
+| `LANGFUSE_SECRET_KEY` | None | Optional — Langfuse secret key |
+| `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | Optional — Langfuse instance URL |
 
 ## Tests
 
