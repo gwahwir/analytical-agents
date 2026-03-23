@@ -106,14 +106,14 @@ def test_output_format_loaded(tmp_configs, monkeypatch):
 
 
 def test_all_analytical_yamls_load():
-    """All 14 analytical framework YAMLs load successfully with .md content."""
+    """All analytical framework YAMLs load successfully with .md content."""
     from agents.specialist_agent.config import load_specialist_configs
 
     cards_dir = Path(__file__).parent.parent / "agents" / "specialist_agent" / "agent_cards"
     configs = load_specialist_configs(cards_dir)
 
-    # 14 analytical framework agents
-    assert len(configs) == 14
+    # 16 analytical framework agents (14 original + climate_security + economic_statecraft)
+    assert len(configs) == 16
 
     analytical_ids = {
         "taleb-antifragile", "behavioral-economics", "realist-ir", "liberal-ir",
