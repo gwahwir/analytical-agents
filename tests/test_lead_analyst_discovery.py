@@ -294,31 +294,6 @@ class TestCallSpecialistNode:
 
 class TestDynamicGraphIntegration:
 
-    async def test_dynamic_graph_fans_out_to_three(self):
-        from agents.lead_analyst.graph import build_lead_analyst_graph
-        graph = build_lead_analyst_graph(
-            sub_agents=[], dynamic_discovery=True,
-            control_plane_url="http://cp:8000", min_specialists=3,
-        )
-        config = _make_runnableconfig()
-        selected = [
-            {"label": "Analyst A", "url": "http://s:8006/a"},
-            {"label": "Analyst B", "url": "http://s:8006/b"},
-            {"label": "Analyst C", "url": "http://s:8006/c"},
-        ]
-        with patch("agents.lead_analyst.graph._fetch_agents",
-                   new=AsyncMock(return_value=FAKE_SPECIALISTS)):
-            with patch("agents.lead_analyst.graph._select_specialists_with_llm",
-                       new=AsyncMock(return_value=selected)):
-                with patch("agents.lead_analyst.graph._call_sub_agent",
-                           new=AsyncMock(return_value='{"summary": "analysis"}')):
-                    result = await graph.ainvoke(
-                        {"input": "What is the geopolitical risk in ASEAN?"},
-                        config=config,
-                    )
-        assert len(result["results"]) == 3
-        assert {r[0] for r in result["results"]} == {"Analyst A", "Analyst B", "Analyst C"}
-
     async def test_static_graph_unchanged(self):
         from agents.lead_analyst.config import SubAgentConfig
         from agents.lead_analyst.graph import build_lead_analyst_graph

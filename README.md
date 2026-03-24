@@ -272,26 +272,12 @@ The Lead Analyst demonstrates complex multi-agent orchestration:
          │           All results in state.results        │
          └──────────┬────────────────────────────────────┘
                     │
-                    ▼
-         ┌───────────────────────────────────────────────┐
-         │         aggregate (LLM Meta-Analyst)          │
-         │  Synthesizes domain specialist outputs        │
-         │                                               │
-         │  • Identify convergent points                 │
-         │  • Identify divergent points                  │
-         │  • Synthesize complementary insights          │
-         │  • Generate key takeaways                     │
-         │  • Recommend actions                          │
-         │  • Flag research gaps                         │
-         │                                               │
-         │  Output → state.aggregated_consensus          │
-         └──────────┬────────────────────────────────────┘
-                    │
                     │ Meta-Analysis Pipeline (Sequential)
                     ▼
          ┌───────────────────────────────────────────────┐
          │      call_peripheral_scan (L2)                │
          │  Identifies what domain specialists MISSED    │
+         │  (RUNS BEFORE AGGREGATION)                    │
          │                                               │
          │  Input: raw docs + domain summaries           │
          │  Detects:                                     │
@@ -302,6 +288,25 @@ The Lead Analyst demonstrates complex multi-agent orchestration:
          │  • Gaps in addressing key questions           │
          │                                               │
          │  Output → state.peripheral_findings           │
+         └──────────┬────────────────────────────────────┘
+                    │
+                    ▼
+         ┌───────────────────────────────────────────────┐
+         │         aggregate (LLM Meta-Analyst)          │
+         │  Synthesizes domain + peripheral findings     │
+         │                                               │
+         │  Input: domain specialist results +           │
+         │         peripheral_findings                   │
+         │                                               │
+         │  • Identify convergent points                 │
+         │  • Identify divergent points                  │
+         │  • Synthesize complementary insights          │
+         │  • Integrate peripheral findings              │
+         │  • Generate key takeaways                     │
+         │  • Recommend actions                          │
+         │  • Flag research gaps                         │
+         │                                               │
+         │  Output → state.aggregated_consensus          │
          └──────────┬────────────────────────────────────┘
                     │
                     ▼
@@ -368,12 +373,15 @@ The Lead Analyst demonstrates complex multi-agent orchestration:
                    │
                    ▼
          ┌──────────────────┐
-         │    aggregate     │ → aggregated_consensus
+         │  peripheral_scan │ → peripheral_findings
          └────────┬─────────┘
                   │
                   ▼
          ┌──────────────────┐
-         │  peripheral_scan │ → peripheral_findings
+         │    aggregate     │ → aggregated_consensus
+         │ (synthesizes     │    (domain + peripheral)
+         │  domain +        │
+         │  peripheral)     │
          └────────┬─────────┘
                   │
                   ▼
@@ -406,14 +414,16 @@ The system uses a **3-tier specialist architecture**:
 - LLM selects 3-8 most relevant based on query
 - Called concurrently to generate diverse analytical perspectives
 
-**L2: Peripheral Scanner** (Always called sequentially after L1)
+**L2: Peripheral Scanner** (Always called sequentially BEFORE aggregation)
 - Identifies collective blind spots across all domain analyses
 - Detects weak signals, uncited intelligence, cross-domain connections
+- Runs BEFORE aggregation so findings can be integrated into consensus (not added post-hoc)
 - Tagged with `specialist_L2` to exclude from LLM selection
 
-**L3: ACH Red Team** (Always called sequentially after L2)
+**L3: ACH Red Team** (Always called sequentially AFTER aggregation)
 - Challenges aggregated consensus with alternative hypotheses
 - Identifies disconfirming evidence and question-framing issues
+- Runs AFTER aggregation to challenge the synthesized consensus
 - Tagged with `specialist_L3` to exclude from LLM selection
 
 ```
@@ -479,7 +489,11 @@ Specialist Agent (:8006) hosts 16 geopolitical/intelligence specialists:
 1. **discover_and_select** filters out L2/L3 meta-specialists
 2. LLM selects 3-8 L1 domain specialists based on query relevance
 3. Domain specialists called in parallel (concurrent A2A)
-4. Meta-specialists always called sequentially: L2 → L3
+4. **Meta-analysis pipeline (sequential):**
+   - **L2 Peripheral Scan** → runs BEFORE aggregation to catch blind spots early
+   - **Aggregation** → synthesizes domain analyses + peripheral findings
+   - **L3 ACH Red Team** → challenges the aggregated consensus
+   - **Final Synthesis** → integrates consensus + challenges
 
 Each domain specialist returns structured JSON with key findings,
 evidence, predictions, limitations, and confidence levels.
@@ -521,16 +535,8 @@ LAYER 1: Domain Analysis (Parallel)
 └──────────────────────────────────────────────────────────┘
                          │
                          ▼
-              ┌─────────────────────┐
-              │    AGGREGATION      │  Synthesizes domain analyses:
-              │   (LLM Synthesis)   │  • Convergent points
-              │                     │  • Divergent points
-              └──────────┬──────────┘  • Complementary insights
-                         │
-                         │ aggregated_consensus
-                         ▼
 ─────────────────────────────────────────────────────────────────────
-LAYER 2: Peripheral Scan (Sequential)
+LAYER 2: Peripheral Scan (Sequential - RUNS BEFORE AGGREGATION)
 ┌─────────────────────────────────────────────────────────────────┐
 │              PERIPHERAL SCANNER (L2)                            │
 │                                                                 │
@@ -563,7 +569,30 @@ LAYER 2: Peripheral Scan (Sequential)
                          │ peripheral_findings
                          ▼
 ─────────────────────────────────────────────────────────────────────
-LAYER 3: ACH Red Team (Sequential)
+AGGREGATION (Synthesizes Domain + Peripheral)
+┌─────────────────────────────────────────────────────────────────┐
+│              AGGREGATION (LLM Synthesis)                        │
+│                                                                 │
+│  Inputs:                                                        │
+│  • Domain specialist analyses (results)                        │
+│  • Peripheral findings (weak signals & blind spots)           │
+│                                                                 │
+│  Synthesis:                                                     │
+│  • Identify convergent points (where frameworks agree)         │
+│  • Identify divergent points (where frameworks disagree)       │
+│  • Integrate complementary insights                            │
+│  • Weave in peripheral findings (not tacked on post-hoc)      │
+│  • Generate key takeaways                                      │
+│  • Recommend actions                                           │
+│  • Flag research gaps                                          │
+│                                                                 │
+│  Output → aggregated_consensus (domain + peripheral)           │
+└─────────────────────────────────────────────────────────────────┘
+                         │
+                         │ aggregated_consensus
+                         ▼
+─────────────────────────────────────────────────────────────────────
+LAYER 3: ACH Red Team (Sequential - RUNS AFTER AGGREGATION)
 ┌─────────────────────────────────────────────────────────────────┐
 │              ACH RED TEAM CHALLENGER (L3)                       │
 │          Analysis of Competing Hypotheses + Pre-Mortem          │
@@ -627,13 +656,27 @@ FINAL SYNTHESIS (LLM Integration)
 4. **Intellectual Honesty** — Present both consensus AND credible alternatives
 5. **Actionability** — Decision-makers need clarity, not just debate
 
-**Why Sequential Meta-Analysis?**
+**Why This Sequence?**
 
-- **Peripheral Scanner (L2)** needs domain analyses to identify what's missing
-- **ACH Red Team (L3)** needs consensus + peripheral findings to generate alternatives
-- **Final Synthesis** integrates all layers into balanced assessment
+1. **Peripheral Scan runs BEFORE aggregation:**
+   - Catches weak signals BEFORE consensus solidifies
+   - Findings integrated into consensus (not added post-hoc)
+   - Prevents collective blind spots from being baked into aggregation
 
-This architecture prevents "groupthink" by systematically challenging consensus while maintaining analytical rigor.
+2. **Aggregation synthesizes domain + peripheral:**
+   - Single comprehensive synthesis (not layered additions)
+   - Peripheral findings naturally woven into consensus
+
+3. **ACH runs AFTER aggregation:**
+   - Challenges the synthesized consensus
+   - Generates alternative hypotheses
+   - Identifies disconfirming evidence
+
+4. **Final Synthesis integrates consensus + challenges:**
+   - Balanced assessment with alternatives
+   - Decision-makers see both primary view AND credible alternatives
+
+This architecture prevents "groupthink" by systematically catching blind spots early AND challenging consensus late, while maintaining analytical rigor.
 
 ### 5. Load Balancing
 
@@ -848,16 +891,18 @@ curl http://localhost:8000/agents
       - Each specialist analyzes via their framework
       - Results gathered in state.results
 
-   c) aggregate:
-      - LLM synthesizes 5 domain analyses
-      - Identifies convergent/divergent points
-      - Output → state.aggregated_consensus
-
-   d) call_peripheral_scan (L2):
+   c) call_peripheral_scan (L2):
       - A2A call to peripheral-scan specialist
       - Input: raw docs + domain summaries + key questions
       - Detects uncited intel & collective blind spots
+      - RUNS BEFORE aggregation to catch blind spots early
       - Output → state.peripheral_findings
+
+   d) aggregate:
+      - LLM synthesizes 5 domain analyses + peripheral findings
+      - Identifies convergent/divergent points
+      - Integrates peripheral findings into consensus
+      - Output → state.aggregated_consensus
 
    e) call_ach_red_team (L3):
       - A2A call to ach-red-team specialist
@@ -896,8 +941,9 @@ curl http://localhost:8000/agents
 **Key Observations:**
 
 - **L1 Domain Specialists**: Selected dynamically, run in parallel (speed)
-- **L2 Peripheral Scanner**: Always called, runs sequentially (needs domain results)
-- **L3 ACH Red Team**: Always called, runs sequentially (needs consensus + peripheral)
+- **L2 Peripheral Scanner**: Always called, runs sequentially BEFORE aggregation (catches blind spots early)
+- **Aggregation**: Synthesizes domain + peripheral into unified consensus
+- **L3 ACH Red Team**: Always called, runs sequentially AFTER aggregation (challenges consensus)
 - **All communication**: Via A2A JSON-RPC (standardized, traceable)
 - **State machine**: submitted → working → completed (WebSocket updates at each node)
 

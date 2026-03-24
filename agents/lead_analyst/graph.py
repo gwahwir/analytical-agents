@@ -523,18 +523,18 @@ def route_to_specialists(state: LeadAnalystState) -> list:
 
 
 def check_all_specialists_done(state: LeadAnalystState) -> str:
-    """Route to aggregate only after all domain specialists complete.
+    """Route to peripheral_scan only after all domain specialists complete.
 
     This router is used as a conditional edge from call_specialist node.
     It checks if the number of results matches the number of selected specialists.
-    If all specialists are done, route to aggregate. Otherwise, stay in call_specialist
+    If all specialists are done, route to peripheral_scan. Otherwise, stay in call_specialist
     (which will be called again for remaining specialists via Send API).
     """
     num_selected = len(state.get("selected_specialists", []))
     num_results = len(state.get("results", []))
 
     if num_results >= num_selected:
-        return "aggregate"
+        return "call_peripheral_scan"
     else:
         return "call_specialist"
 
@@ -542,10 +542,11 @@ def check_all_specialists_done(state: LeadAnalystState) -> str:
 async def call_peripheral_scan(
     state: LeadAnalystState, config: RunnableConfig
 ) -> dict[str, Any]:
-    """Call peripheral scanner after domain specialists complete.
+    """Call peripheral scanner before aggregation to catch weak signals early.
 
-    Peripheral scan identifies what domain specialists missed: weak signals,
-    blind spots, uncited intelligence, and cross-domain connections.
+    Peripheral scan identifies weak signals, blind spots, and uncited intelligence
+    that domain specialists may have missed. Runs BEFORE aggregation so findings
+    can be integrated into the consensus rather than added post-hoc.
     """
     executor = config["configurable"]["executor"]
     task_id = config["configurable"]["task_id"]
@@ -580,6 +581,8 @@ Apply peripheral scan methodology to identify what domain specialists missed:
 3. Cross-domain connections
 4. Framework blind spots preventing key questions from being fully addressed
 5. Any other significant gaps (even if not directly related to key questions)
+
+Your findings will be integrated into the aggregated consensus, so focus on HIGH-SIGNAL insights that would materially change the analysis.
 """
 
     # TODO: Make specialist agent URL configurable via env var or discovery
@@ -955,12 +958,11 @@ def build_lead_analyst_graph(
     graph.add_node("call_ach_red_team", call_ach_red_team)
     graph.add_node("final_synthesis", final_synthesis)
 
-    def should_run_meta_analysis(state: LeadAnalystState) -> str:
-        """Conditional edge: decide whether to run meta-analysis or go straight to respond."""
-        # Check if meta-analysis nodes exist (they always exist now)
-        # For now, always run meta-analysis (default mode as requested)
+    def should_run_ach_analysis(state: LeadAnalystState) -> str:
+        """Conditional edge: decide whether to run ACH red team or go straight to respond."""
+        # For now, always run ACH analysis (default mode as requested)
         # Future: add logic based on question type, user preference, or state flags
-        return "call_peripheral_scan"
+        return "call_ach_red_team"
 
     if dynamic_discovery:
         effective_cp_url = control_plane_url or os.getenv("CONTROL_PLANE_URL", "")
@@ -973,7 +975,7 @@ def build_lead_analyst_graph(
         graph.add_node("discover_and_select", _make_discover_node(effective_cp_url, min_specialists))
         graph.add_node("call_specialist", call_specialist)
 
-        # Flow: discover → specialists (parallel) → aggregate → [conditional: meta-analysis or respond]
+        # Flow: discover → specialists (parallel) → peripheral_scan → aggregate → ach → synthesis → respond
         graph.add_edge("receive", "discover_and_select")
         graph.add_conditional_edges("discover_and_select", route_to_specialists, ["call_specialist"])
         graph.add_conditional_edges(
@@ -981,7 +983,7 @@ def build_lead_analyst_graph(
             check_all_specialists_done,
             {
                 "call_specialist": "call_specialist",  # Loop back if not done
-                "aggregate": "aggregate",  # All done, proceed to aggregation
+                "call_peripheral_scan": "call_peripheral_scan",  # All done, proceed to peripheral scan
             }
         )
     else:
@@ -989,23 +991,25 @@ def build_lead_analyst_graph(
         for sa in sub_agents:
             graph.add_node(sa.node_id, _make_sub_agent_node(sa))
             graph.add_edge("receive", sa.node_id)
-            graph.add_edge(sa.node_id, "aggregate")
+            graph.add_edge(sa.node_id, "call_peripheral_scan")
         if not sub_agents:
-            # No sub-agents: skip straight to aggregate with empty results
-            graph.add_edge("receive", "aggregate")
+            # No sub-agents: skip straight to peripheral scan with empty results
+            graph.add_edge("receive", "call_peripheral_scan")
 
-    # Conditional meta-analysis flow (default: always run)
+    # Unified flow: peripheral_scan → aggregate → [conditional: ach or respond]
+    graph.add_edge("call_peripheral_scan", "aggregate")
+
+    # Conditional ACH analysis flow (default: always run ACH)
     graph.add_conditional_edges(
         "aggregate",
-        should_run_meta_analysis,
+        should_run_ach_analysis,
         {
-            "call_peripheral_scan": "call_peripheral_scan",
-            "respond": "respond",  # Future: direct path if meta-analysis is skipped
+            "call_ach_red_team": "call_ach_red_team",
+            "respond": "respond",  # Future: direct path if ACH is skipped
         }
     )
 
-    # Sequential meta-analysis pipeline: peripheral → ach → synthesis → respond
-    graph.add_edge("call_peripheral_scan", "call_ach_red_team")
+    # Sequential meta-analysis pipeline: ach → synthesis → respond
     graph.add_edge("call_ach_red_team", "final_synthesis")
     graph.add_edge("final_synthesis", "respond")
 

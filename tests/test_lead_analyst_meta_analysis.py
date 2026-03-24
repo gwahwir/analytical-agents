@@ -51,8 +51,8 @@ class TestAggregationSynchronization:
         assert "aggregated_consensus" in result
         assert result["aggregated_consensus"]  # Not empty
 
-    async def test_dynamic_mode_check_all_specialists_routes_to_aggregate(self):
-        """Dynamic mode router: check_all_specialists_done routes to aggregate when complete."""
+    async def test_dynamic_mode_check_all_specialists_routes_to_peripheral_scan(self):
+        """Dynamic mode router: check_all_specialists_done routes to peripheral_scan when complete."""
         from agents.lead_analyst.graph import check_all_specialists_done
 
         # Simulate dynamic mode state after all specialists complete
@@ -67,9 +67,9 @@ class TestAggregationSynchronization:
             ],
         }
 
-        # Should route to aggregate when all specialists are done
+        # Should route to peripheral_scan when all specialists are done (NEW FLOW)
         next_node = check_all_specialists_done(state)
-        assert next_node == "aggregate", "Dynamic mode should route to aggregate after all specialists complete"
+        assert next_node == "call_peripheral_scan", "Dynamic mode should route to peripheral_scan after all specialists complete"
 
     async def test_empty_sub_agents_aggregates_empty_results(self):
         """Static mode with no sub-agents: receive → aggregate → meta-analysis."""
@@ -358,15 +358,15 @@ class TestMetaAnalysisEdgeCases:
 class TestSpecialistCompletionRouter:
     """Test the dynamic mode synchronization barrier."""
 
-    def test_routes_to_aggregate_when_all_done(self):
-        """Should route to aggregate when all specialists complete."""
+    def test_routes_to_peripheral_scan_when_all_done(self):
+        """Should route to peripheral_scan when all specialists complete (NEW FLOW)."""
         from agents.lead_analyst.graph import check_all_specialists_done
 
         state = {
             "selected_specialists": [{"label": "A"}, {"label": "B"}, {"label": "C"}],
             "results": [("A", "..."), ("B", "..."), ("C", "...")],
         }
-        assert check_all_specialists_done(state) == "aggregate"
+        assert check_all_specialists_done(state) == "call_peripheral_scan"
 
     def test_loops_back_when_not_all_done(self):
         """Should loop back to call_specialist if some are still pending."""
