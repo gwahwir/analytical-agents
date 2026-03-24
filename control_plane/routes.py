@@ -166,7 +166,6 @@ async def _run_task(
     try:
         gen = client.stream_message(
             text,
-            task_id=task_id,
             baselines=record.baselines,
             key_questions=record.key_questions,
         )
