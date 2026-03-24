@@ -12,6 +12,8 @@ import asyncio
 import httpx
 from pytest_httpx import HTTPXMock
 
+import pytest
+
 from tests.conftest import (
     FAKE_AGENT_ID,
     FAKE_AGENT_URL,
@@ -135,27 +137,45 @@ async def test_get_task_not_found(client):
 # ---------------------------------------------------------------------------
 
 async def test_cancel_task(client, httpx_mock: HTTPXMock):
-    # Dispatch — agent returns "working" so the record stays in a non-terminal state
-    httpx_mock.add_callback(a2a_rpc_callback("to cancel", state="working"), url=f"{FAKE_AGENT_URL}/")
-    resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "to cancel"})
-    task_id = resp.json()["task_id"]
+    import asyncio
+    from unittest.mock import AsyncMock, patch
 
-    # Wait until _run_task has stored the "working" state (not just "submitted")
-    deadline = asyncio.get_event_loop().time() + 5.0
-    while asyncio.get_event_loop().time() < deadline:
-        r = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
-        if r.status_code == 200 and r.json()["state"] == "working":
-            break
-        await asyncio.sleep(0.05)
+    hold = asyncio.Event()
 
-    # Cancel (second POST to the agent URL)
-    def cancel_callback(request: httpx.Request) -> httpx.Response:
-        return a2a_cancel_response(task_id)
-    httpx_mock.add_callback(cancel_callback, url=f"{FAKE_AGENT_URL}/")
+    async def fake_stream(*args, **kwargs):
+        yield {"result": {"status": {"state": "working", "message": {"parts": [{"text": "Running node: process"}]}}}}
+        await hold.wait()  # suspend until cancel fires
 
-    resp = await client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "cancelled"
+    task_id_ref = [None]
+
+    with patch("control_plane.routes.A2AClient") as MockClient:
+        # stream_message keeps the task alive until hold is set
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
+
+        # cancel_task is called by the cancel endpoint — mock it to unblock the stream
+        async def fake_cancel(*args, **kwargs):
+            hold.set()
+        MockClient.return_value.cancel_task = AsyncMock(side_effect=fake_cancel)
+
+        resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "to cancel"})
+        assert resp.status_code == 202
+        task_id_ref[0] = resp.json()["task_id"]
+        task_id = task_id_ref[0]
+
+        # Wait until _run_task has processed the "Running node" event (state=working in record)
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while asyncio.get_event_loop().time() < deadline:
+            r = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+            if r.status_code == 200 and r.json()["state"] == "working":
+                break
+            await asyncio.sleep(0.05)
+        else:
+            pytest.fail("Task did not reach working state within timeout")
+
+        resp = await client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
 
     resp = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
     assert resp.json()["state"] == "canceled"

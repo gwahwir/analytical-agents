@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from typing import Any
@@ -163,28 +164,59 @@ async def _run_task(
     started_at = time.time()
     client = A2AClient(instance.url, timeout=300)
     try:
-        result = await client.send_message(
+        gen = client.stream_message(
             text,
             baselines=record.baselines,
             key_questions=record.key_questions,
         )
+        try:
+            async for event in gen:
+                state_str = event.get("result", {}).get("status", {}).get("state", "")
+                msg = event.get("result", {}).get("status", {}).get("message", {})
+                text_val = (msg.get("parts") or [{}])[0].get("text", "")
 
-        status = result.get("status", {})
-        state_str = status.get("state", "failed")
-        output = ""
-        msg = status.get("message", {})
-        if msg:
-            parts = msg.get("parts", [])
-            if parts:
-                output = parts[0].get("text", "")
+                if text_val.startswith("NODE_OUTPUT::"):
+                    parts = text_val.split("::", 2)
+                    if len(parts) == 3:
+                        _, node_name, json_payload = parts
+                        try:
+                            json.loads(json_payload)  # validate
+                            record.node_outputs[node_name] = json_payload
+                            record.running_node = ""   # node just completed
+                            await _task_store.save(record)
+                            await _broker.publish(task_id, record.to_dict())
+                        except json.JSONDecodeError:
+                            logger.warning("node_output_invalid_json", task_id=task_id, node=node_name)
+                    continue
 
-        record.state = TaskState(state_str)
-        record.output_text = output
-        record.a2a_task = result
+                # Track currently-running node (non-NODE_OUTPUT working events)
+                if state_str == "working" and text_val.startswith("Running node: "):
+                    node_name = text_val[len("Running node: "):]
+                    record.running_node = node_name
+                    await _task_store.save(record)
+                    await _broker.publish(task_id, record.to_dict())
+                    continue
 
-        # Extract error detail from the agent's response when task failed
-        if record.state == TaskState.FAILED:
-            record.error = output or "Agent returned failed state with no details"
+                if state_str in ("completed", "failed", "canceled"):
+                    record.state = TaskState(state_str)
+                    record.output_text = text_val
+                    record.running_node = ""
+                    if record.state == TaskState.FAILED:
+                        record.error = text_val or "Agent returned failed state with no details"
+                    break
+            else:
+                # Only mark failed if the cancel endpoint hasn't already set a terminal state.
+                # _run_task holds its own in-memory record copy; the cancel endpoint writes
+                # a fresh copy to the store and sets CANCELED — we must not overwrite it.
+                terminal = {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED}
+                fresh = await _task_store.get(task_id)
+                if fresh is None or fresh.state not in terminal:
+                    record.state = TaskState.FAILED
+                    record.error = "Stream ended without a terminal status event"
+                else:
+                    record.state = fresh.state
+        finally:
+            await gen.aclose()
 
         elapsed = time.time() - started_at
         task_duration.labels(agent_id=agent_id).observe(elapsed)
@@ -198,7 +230,7 @@ async def _run_task(
             "task_complete",
             agent_id=agent_id,
             task_id=task_id,
-            state=state_str,
+            state=record.state.value,
             duration_s=round(elapsed, 3),
             instance=instance.url,
         )

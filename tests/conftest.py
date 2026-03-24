@@ -27,32 +27,32 @@ FAKE_AGENT_ID = "echo-agent"
 FAKE_AGENT_URL = "http://echo-agent:8001"
 
 
-def make_a2a_response(task_id: str, text: str, state: str = "completed") -> dict:
-    return {
-        "id": task_id,
-        "status": {
-            "state": state,
-            "message": {"parts": [{"text": f"ECHO: {text.upper()}"}]},
-        },
+def a2a_sse_event(text: str, state: str = "completed") -> bytes:
+    """Single SSE event in the format stream_message expects."""
+    event_data = {
+        "result": {
+            "status": {
+                "state": state,
+                "message": {"parts": [{"text": text}]},
+            }
+        }
     }
+    return f"data: {json.dumps(event_data)}\n\n".encode()
 
 
-def a2a_rpc(task_id: str, text: str, state: str = "completed") -> httpx.Response:
-    """Build a JSON-RPC 2.0 httpx response wrapping an A2A task result."""
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": make_a2a_response(task_id, text, state),
-    }
-    return httpx.Response(200, json=payload)
+def a2a_sse_response(text: str, state: str = "completed") -> httpx.Response:
+    """SSE httpx.Response that stream_message will parse as one event."""
+    return httpx.Response(
+        200,
+        content=a2a_sse_event(f"ECHO: {text.upper()}", state),
+        headers={"content-type": "text/event-stream"},
+    )
 
 
 def a2a_rpc_callback(text: str, state: str = "completed"):
-    """Return an httpx_mock callback that echoes back the task_id from the request."""
+    """SSE callback for httpx_mock — replaces the old JSON-RPC version."""
     def callback(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        task_id = body.get("params", {}).get("message", {}).get("taskId", "unknown")
-        return a2a_rpc(task_id, text, state)
+        return a2a_sse_response(text, state)
     return callback
 
 
