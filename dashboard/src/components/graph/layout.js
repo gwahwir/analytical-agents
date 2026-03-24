@@ -26,7 +26,7 @@ export function computeLayout(graphData) {
 
   agents.forEach((agent) => {
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: "LR", nodesep: 20, ranksep: 40 });
+    g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 70 });
     g.setDefaultEdgeLabel(() => ({}));
 
     agent.nodes.forEach((n) => {
@@ -63,20 +63,21 @@ export function computeLayout(graphData) {
     };
   });
 
-  // Step 2: Align all agent groups vertically centered, laid out left-to-right
-  const maxGroupHeight = Math.max(
-    ...Object.values(agentLayouts).map((l) => l.groupHeight)
+  // Step 2: Stack agent groups top-to-bottom, centered horizontally relative to widest
+  const maxGroupWidth = Math.max(
+    ...Object.values(agentLayouts).map((l) => l.groupWidth)
   );
 
-  let currentX = 0;
+  let currentY = 0;
   const agentPositions = {};
+  const GROUP_GAP_VERTICAL = 60;
 
   agents.forEach((agent) => {
     const layout = agentLayouts[agent.id];
-    // Center vertically relative to the tallest group
-    const yOffset = (maxGroupHeight - layout.groupHeight) / 2;
-    agentPositions[agent.id] = { x: currentX, y: yOffset };
-    currentX += layout.groupWidth + GROUP_GAP;
+    // Center horizontally relative to the widest group
+    const xOffset = (maxGroupWidth - layout.groupWidth) / 2;
+    agentPositions[agent.id] = { x: xOffset, y: currentY };
+    currentY += layout.groupHeight + GROUP_GAP_VERTICAL;
   });
 
   // Step 3: Build React Flow nodes with absolute positions

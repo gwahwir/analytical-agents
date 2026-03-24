@@ -65,6 +65,8 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
     return "pending";
   })();
 
+  const taskError = taskState?.error || null;
+
   return (
     <Modal
       opened={!!task}
@@ -104,6 +106,14 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
               <Text size="xs" style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px" }} tt="uppercase">Created</Text>
               <Text size="sm">{taskState?.created_at ? new Date(taskState.created_at * 1000).toLocaleString() : "—"}</Text>
             </div>
+            {taskError && taskState?.state === "failed" && (
+              <div>
+                <Text size="xs" style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px" }} tt="uppercase">Error</Text>
+                <Code block style={{ fontSize: 10, color: "var(--hud-red)", backgroundColor: "rgba(255,61,61,0.05)", border: "1px solid rgba(255,61,61,0.2)", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto", marginTop: 4 }}>
+                  {taskError}
+                </Code>
+              </div>
+            )}
             {canCancel && (
               <Button
                 color="hud-red"
@@ -125,6 +135,7 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
                 nodeId={selectedNodeId}
                 nodeOutputJson={nodeOutputJson}
                 nodeState={nodeState}
+                taskError={taskError}
                 onClose={() => setSelectedNodeId(null)}
               />
             ) : (
