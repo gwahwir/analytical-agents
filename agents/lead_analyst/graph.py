@@ -587,7 +587,7 @@ Your findings will be integrated into the aggregated consensus, so focus on HIGH
 
     # TODO: Make specialist agent URL configurable via env var or discovery
     specialist_agent_url = os.getenv("SPECIALIST_AGENT_URL", "http://specialist-agent:8006")
-    peripheral_scan_url = f"{specialist_agent_url}/execute"
+    peripheral_scan_url = f"{specialist_agent_url}/peripheral-scan"
 
     try:
         peripheral_output = await _call_sub_agent(
@@ -647,7 +647,7 @@ Be adversarial. Your job is to find flaws in both the consensus AND the framing 
 
     # TODO: Make specialist agent URL configurable
     specialist_agent_url = os.getenv("SPECIALIST_AGENT_URL", "http://specialist-agent:8006")
-    ach_red_team_url = f"{specialist_agent_url}/execute"
+    ach_red_team_url = f"{specialist_agent_url}/ach-red-team"
 
     try:
         ach_output = await _call_sub_agent(

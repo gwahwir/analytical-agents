@@ -4,7 +4,7 @@
 
 **Goal:** Replace the flat `TaskDetailDrawer` with a full-screen modal showing the agent's LangGraph execution graph; clicking a node reveals its actual output, updating live during task execution.
 
-**Architecture:** The executor emits a `NODE_OUTPUT::{name}::{json}` SSE event after each node runs; the control plane streams these via `stream_message`, accumulates them in a new `node_outputs` field on `TaskRecord`, and pushes updates over the existing WebSocket. Three new React components render the modal: `TaskGraphModal` (shell + WS subscription), `TaskFlowGraph` (ReactFlow with execution-state overlay), and `NodeOutputPanel` (formatted/raw output tabs).
+**Architecture:** The executor emits `NODE_OUTPUT::{name}::{json}` and `Running node: {name}` SSE events after each node; the control plane streams these, accumulates `node_outputs` and tracks `running_node` in `TaskRecord`, and publishes updates over the existing WebSocket after each node. Three new React components render the modal: `TaskGraphModal` (shell + WS subscription), `TaskFlowGraph` (ReactFlow with execution-state overlay), and `NodeOutputPanel` (formatted/raw output tabs).
 
 **Tech Stack:** Python / FastAPI / asyncpg (backend), React / ReactFlow (`@xyflow/react`) / Mantine (frontend), pytest / pytest-httpx / pytest-asyncio (tests)
 
@@ -16,11 +16,12 @@
 
 | File | Action | Responsibility |
 |---|---|---|
-| `control_plane/task_store.py` | Modify | Add `node_outputs` field to `TaskRecord`; update Postgres `_UPSERT` |
+| `control_plane/task_store.py` | Modify | Add `node_outputs` + `running_node` fields to `TaskRecord`; update Postgres `_UPSERT` |
 | `control_plane/a2a_client.py` | Modify | Add `baselines`/`key_questions` params + `AsyncGenerator` return type to `stream_message` |
 | `agents/base/executor.py` | Modify | Emit `NODE_OUTPUT::` event after each node |
-| `control_plane/routes.py` | Modify | Switch `_run_task` to `stream_message`; parse and store node outputs |
-| `tests/test_task_store.py` | Create | Unit tests for `node_outputs` field serialization |
+| `control_plane/routes.py` | Modify | Switch `_run_task` to `stream_message`; parse and store node outputs + running_node |
+| `tests/conftest.py` | Modify | Replace `a2a_rpc_callback` with SSE-format helpers; all dispatch now uses `stream_message` |
+| `tests/test_task_store.py` | Create | Unit tests for `node_outputs`/`running_node` field serialization |
 | `tests/test_node_output_stream.py` | Create | Unit tests for `_run_task` streaming + NODE_OUTPUT parsing |
 | `dashboard/src/components/TaskGraphModal/NodeOutputPanel.jsx` | Create | Formatted/raw output panel for a selected node |
 | `dashboard/src/components/TaskGraphModal/TaskFlowGraph.jsx` | Create | ReactFlow graph with execution-state overlay |
@@ -30,17 +31,18 @@
 
 ---
 
-## Task 1: Add `node_outputs` to `TaskRecord`
+## Task 1: Add `node_outputs` and `running_node` to `TaskRecord`
 
 **Files:**
 - Modify: `control_plane/task_store.py`
 - Create: `tests/test_task_store.py`
 
-- [ ] **Write the failing test**
+- [ ] **Write the failing tests**
 
 ```python
 # tests/test_task_store.py
 from __future__ import annotations
+import json
 import pytest
 from control_plane.task_store import TaskRecord, TaskState
 
@@ -50,131 +52,121 @@ def test_task_record_node_outputs_default():
     assert r.node_outputs == {}
 
 
-def test_task_record_to_dict_includes_node_outputs():
+def test_task_record_running_node_default():
+    r = TaskRecord(task_id="t1", agent_id="echo-agent")
+    assert r.running_node == ""
+
+
+def test_task_record_to_dict_includes_node_outputs_and_running_node():
     r = TaskRecord(task_id="t1", agent_id="echo-agent")
     r.node_outputs["receive"] = '{"input": "hello"}'
+    r.running_node = "analyze"
     d = r.to_dict()
-    assert "node_outputs" in d
     assert d["node_outputs"]["receive"] == '{"input": "hello"}'
+    assert d["running_node"] == "analyze"
 
 
 def test_task_record_from_row_deserializes_node_outputs():
     row = {
-        "task_id": "t1",
-        "agent_id": "echo-agent",
-        "instance_url": "",
-        "state": "completed",
-        "input_text": "hi",
-        "baselines": "",
-        "key_questions": "",
-        "output_text": "HI",
-        "error": "",
-        "created_at": 1000.0,
-        "updated_at": 1001.0,
-        "a2a_task": "{}",
+        "task_id": "t1", "agent_id": "echo-agent", "instance_url": "",
+        "state": "completed", "input_text": "hi", "baselines": "",
+        "key_questions": "", "output_text": "HI", "error": "",
+        "created_at": 1000.0, "updated_at": 1001.0, "a2a_task": "{}",
         "node_outputs": '{"receive": "{\\"input\\": \\"hi\\"}"}',
+        "running_node": "analyze",
     }
     r = TaskRecord.from_row(row)
     assert r.node_outputs == {"receive": '{"input": "hi"}'}
+    assert r.running_node == "analyze"
 
 
-def test_task_record_from_row_missing_node_outputs_defaults_empty():
+def test_task_record_from_row_missing_fields_use_defaults():
     row = {
-        "task_id": "t1",
-        "agent_id": "echo-agent",
-        "instance_url": "",
-        "state": "completed",
-        "input_text": "hi",
-        "baselines": "",
-        "key_questions": "",
-        "output_text": "",
-        "error": "",
-        "created_at": 1000.0,
-        "updated_at": 1001.0,
-        "a2a_task": "{}",
-        # node_outputs intentionally absent
+        "task_id": "t1", "agent_id": "echo-agent", "instance_url": "",
+        "state": "completed", "input_text": "hi", "baselines": "",
+        "key_questions": "", "output_text": "", "error": "",
+        "created_at": 1000.0, "updated_at": 1001.0, "a2a_task": "{}",
+        # node_outputs and running_node intentionally absent
     }
     r = TaskRecord.from_row(row)
     assert r.node_outputs == {}
+    assert r.running_node == ""
 ```
 
-- [ ] **Run test to confirm it fails**
+- [ ] **Run tests to confirm they fail**
 
 ```bash
 pytest tests/test_task_store.py -v
 ```
-Expected: 4 failures (field does not exist yet)
+Expected: 5 failures
 
-- [ ] **Add `node_outputs` to `TaskRecord`**
+- [ ] **Add `node_outputs` and `running_node` to `TaskRecord` in `control_plane/task_store.py`**
 
-In `control_plane/task_store.py`:
-
+Add two fields after `a2a_task`:
 ```python
-# In the dataclass fields, after `a2a_task`:
 node_outputs: dict[str, str] = field(default_factory=dict)
+running_node: str = ""
 ```
 
 In `to_dict()`, add:
 ```python
 "node_outputs": self.node_outputs,
+"running_node": self.running_node,
 ```
 
-In `from_row()`, add (after the `a2a_task` line):
+In `from_row()`, add after the `a2a_task` block:
 ```python
 node_outputs_raw = row.get("node_outputs", "{}")
-if isinstance(node_outputs_raw, str):
-    node_outputs = json.loads(node_outputs_raw)
-else:
-    node_outputs = node_outputs_raw or {}
+node_outputs = json.loads(node_outputs_raw) if isinstance(node_outputs_raw, str) else (node_outputs_raw or {})
+running_node = row.get("running_node", "")
 ```
-And pass `node_outputs=node_outputs` to the `cls(...)` constructor call.
+Pass both to the constructor: `node_outputs=node_outputs, running_node=running_node`.
 
-- [ ] **Update Postgres `_ADD_*` migration and `_UPSERT` SQL**
+- [ ] **Update Postgres migration and `_UPSERT`**
 
-Add a new migration constant after `_ADD_STRUCTURED_INPUT_COLUMNS`:
+Add after `_ADD_STRUCTURED_INPUT_COLUMNS`:
 ```python
-_ADD_NODE_OUTPUTS_COLUMN = """
+_ADD_NODE_OUTPUT_COLUMNS = """
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS node_outputs TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS running_node TEXT NOT NULL DEFAULT '';
 """
 ```
 
-Update `_UPSERT` to include `node_outputs` at position `$13`:
+Update `_UPSERT` to include `node_outputs` (`$13`) and `running_node` (`$14`) in the INSERT list and `ON CONFLICT DO UPDATE SET` clause:
 ```python
 _UPSERT = """
 INSERT INTO tasks
     (task_id, agent_id, instance_url, state, input_text, baselines, key_questions,
-     output_text, error, created_at, updated_at, a2a_task, node_outputs)
+     output_text, error, created_at, updated_at, a2a_task, node_outputs, running_node)
 VALUES
-    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (task_id) DO UPDATE SET
     state        = EXCLUDED.state,
     output_text  = EXCLUDED.output_text,
     error        = EXCLUDED.error,
     updated_at   = EXCLUDED.updated_at,
     a2a_task     = EXCLUDED.a2a_task,
-    node_outputs = EXCLUDED.node_outputs;
+    node_outputs = EXCLUDED.node_outputs,
+    running_node = EXCLUDED.running_node;
 """
 ```
 
-In `PostgresTaskStore.init()`, add the migration call:
-```python
-await conn.execute(_ADD_NODE_OUTPUTS_COLUMN)
-```
+In `PostgresTaskStore.init()`, call `await conn.execute(_ADD_NODE_OUTPUT_COLUMNS)`.
 
-In `PostgresTaskStore.save()`, pass `json.dumps(record.node_outputs)` as the 13th argument.
+In `PostgresTaskStore.save()`, add `json.dumps(record.node_outputs)` as `$13` and `record.running_node` as `$14`.
 
-- [ ] **Run tests to confirm they pass**
+- [ ] **Run tests**
 
 ```bash
 pytest tests/test_task_store.py -v
 ```
-Expected: 4 passed
+Expected: 5 passed
 
 - [ ] **Commit**
 
 ```bash
 git add control_plane/task_store.py tests/test_task_store.py
-git commit -m "feat: add node_outputs field to TaskRecord"
+git commit -m "feat: add node_outputs and running_node fields to TaskRecord"
 ```
 
 ---
@@ -183,38 +175,30 @@ git commit -m "feat: add node_outputs field to TaskRecord"
 
 **Files:**
 - Modify: `control_plane/a2a_client.py`
+- Create: `tests/test_a2a_client.py`
 
-> **Note:** This task must be completed before Task 4 (routes.py) since routes.py depends on the updated signature.
+> This task must be complete before Task 4 (routes.py depends on the updated signature).
 
-- [ ] **Write the failing test** (add to `tests/test_task_store.py` or a new file — create `tests/test_a2a_client.py`)
+- [ ] **Write the failing tests**
 
 ```python
 # tests/test_a2a_client.py
 from __future__ import annotations
 import json
-import pytest
 import httpx
-from unittest.mock import AsyncMock, patch, MagicMock
+import pytest
 from control_plane.a2a_client import A2AClient
 
 
 async def test_stream_message_includes_baselines_in_metadata(httpx_mock):
-    """stream_message should pass non-empty baselines in message metadata."""
-    captured_body = {}
+    captured = {}
 
     def capture(request: httpx.Request):
-        captured_body.update(json.loads(request.content))
-        # Return empty SSE stream
-        return httpx.Response(
-            200,
-            content=b"",
-            headers={"content-type": "text/event-stream"},
-        )
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, content=b"", headers={"content-type": "text/event-stream"})
 
     httpx_mock.add_callback(capture, url="http://agent:8001/")
-
     client = A2AClient("http://agent:8001")
-    # Consume the generator to trigger the request
     gen = client.stream_message("hello", baselines="some baseline")
     try:
         async for _ in gen:
@@ -225,20 +209,18 @@ async def test_stream_message_includes_baselines_in_metadata(httpx_mock):
         await gen.aclose()
         await client.close()
 
-    metadata = captured_body.get("params", {}).get("message", {}).get("metadata", {})
+    metadata = captured.get("params", {}).get("message", {}).get("metadata", {})
     assert metadata.get("baselines") == "some baseline"
 
 
 async def test_stream_message_omits_empty_baselines(httpx_mock):
-    """stream_message should not include baselines key when value is empty string."""
-    captured_body = {}
+    captured = {}
 
     def capture(request: httpx.Request):
-        captured_body.update(json.loads(request.content))
+        captured.update(json.loads(request.content))
         return httpx.Response(200, content=b"", headers={"content-type": "text/event-stream"})
 
     httpx_mock.add_callback(capture, url="http://agent:8001/")
-
     client = A2AClient("http://agent:8001")
     gen = client.stream_message("hello", baselines="")
     try:
@@ -250,16 +232,14 @@ async def test_stream_message_omits_empty_baselines(httpx_mock):
         await gen.aclose()
         await client.close()
 
-    metadata = captured_body.get("params", {}).get("message", {}).get("metadata", {})
+    metadata = captured.get("params", {}).get("message", {}).get("metadata", {})
     assert "baselines" not in metadata
 
 
-async def test_stream_message_return_type_supports_aclose():
-    """stream_message must return an AsyncGenerator (supports .aclose())."""
-    import inspect
+async def test_stream_message_supports_aclose():
     client = A2AClient("http://agent:8001")
     gen = client.stream_message("hello")
-    assert hasattr(gen, "aclose"), "stream_message must return an AsyncGenerator"
+    assert hasattr(gen, "aclose"), "must return AsyncGenerator"
     await gen.aclose()
     await client.close()
 ```
@@ -269,16 +249,12 @@ async def test_stream_message_return_type_supports_aclose():
 ```bash
 pytest tests/test_a2a_client.py -v
 ```
-Expected: failures (missing params, no `.aclose()` guarantee)
 
 - [ ] **Update `stream_message` in `control_plane/a2a_client.py`**
 
-Change the return type annotation from `AsyncIterator[dict[str, Any]]` to `AsyncGenerator[dict[str, Any], None]`. Add the import at the top:
-```python
-from typing import Any, AsyncGenerator, AsyncIterator
-```
+Change the return type annotation to `AsyncGenerator[dict[str, Any], None]`. Add `AsyncGenerator` to the `typing` import line.
 
-Add `baselines: str = ""` and `key_questions: str = ""` parameters after `parent_span_id`. Build `metadata` the same way as `send_message` — guard with `if baselines:` and `if key_questions:`:
+Add `baselines: str = ""` and `key_questions: str = ""` keyword parameters. Build metadata identically to `send_message` — only include keys when non-empty:
 
 ```python
 async def stream_message(
@@ -309,13 +285,12 @@ async def stream_message(
         message["taskId"] = task_id
     if context_id:
         message["contextId"] = context_id
-    if parent_span_id or baselines or key_questions:
+    if metadata:
         message["metadata"] = metadata
-
-    # ... rest of method unchanged (payload, async with, yield)
+    # ... rest unchanged
 ```
 
-- [ ] **Run tests to confirm they pass**
+- [ ] **Run tests**
 
 ```bash
 pytest tests/test_a2a_client.py -v
@@ -326,7 +301,7 @@ Expected: 3 passed
 
 ```bash
 git add control_plane/a2a_client.py tests/test_a2a_client.py
-git commit -m "feat: add baselines/key_questions to stream_message, update return type to AsyncGenerator"
+git commit -m "feat: add baselines/key_questions to stream_message, update to AsyncGenerator"
 ```
 
 ---
@@ -336,44 +311,33 @@ git commit -m "feat: add baselines/key_questions to stream_message, update retur
 **Files:**
 - Modify: `agents/base/executor.py`
 
-- [ ] **Make the change in `agents/base/executor.py`**
+- [ ] **Add `import json` and emit the node output event**
 
-Add `import json` at the top if not already present (it isn't — add it).
+At the top of `agents/base/executor.py`, add `import json` (it's not currently imported).
 
-In the `async for event in self.graph.astream(...)` loop, after the existing `result.update(update)` line, add:
+In the `async for event in self.graph.astream(...)` loop, after the `result.update(update)` line, add one new `_emit_status` call:
 
-```python
-await self._emit_status(
-    event_queue,
-    task_id,
-    context_id,
-    TaskState.working,
-    f"NODE_OUTPUT::{node_name}::{json.dumps(update or {})}",
-)
-```
-
-The full modified loop body looks like:
 ```python
 node_name = next(iter(event))
 await self._emit_status(
     event_queue, task_id, context_id, TaskState.working,
-    f"Running node: {node_name}",
+    f"Running node: {node_name}",          # existing line
 )
 update = event[node_name]
 if update:
     result.update(update)
-await self._emit_status(
+await self._emit_status(                    # NEW
     event_queue, task_id, context_id, TaskState.working,
     f"NODE_OUTPUT::{node_name}::{json.dumps(update or {})}",
 )
 ```
 
-- [ ] **Verify no existing tests break**
+- [ ] **Verify existing tests still pass**
 
 ```bash
 pytest tests/ -v --ignore=tests/test_task_store.py --ignore=tests/test_a2a_client.py
 ```
-Expected: all previously passing tests still pass (executor is not directly tested by the existing suite)
+Expected: all previously passing tests still pass
 
 - [ ] **Commit**
 
@@ -384,29 +348,26 @@ git commit -m "feat: emit NODE_OUTPUT events from executor after each node"
 
 ---
 
-## Task 4: Switch `_run_task` to `stream_message` with node output parsing
+## Task 4: Update `conftest.py` to SSE format and switch `_run_task` to streaming
 
 **Files:**
 - Modify: `control_plane/routes.py`
+- Modify: `tests/conftest.py`
 - Create: `tests/test_node_output_stream.py`
 
-- [ ] **Write the failing tests**
+> **Why conftest must change:** All task dispatch now uses `stream_message` which expects an `text/event-stream` SSE response, not a plain JSON-RPC body. The existing `a2a_rpc_callback` returns JSON — it must be replaced with an SSE equivalent so the existing lifecycle tests continue to pass.
+
+- [ ] **Update `tests/conftest.py` — replace JSON-RPC helpers with SSE helpers**
+
+Replace `a2a_rpc` and `a2a_rpc_callback` with SSE versions. The SSE body format that `stream_message` reads is `data: {json}\n\n`. Keep `a2a_cancel_response` unchanged (cancel still uses `send_message`/JSON-RPC):
 
 ```python
-# tests/test_node_output_stream.py
-"""Tests for _run_task streaming mode and NODE_OUTPUT:: parsing."""
-from __future__ import annotations
-import asyncio
-import json
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+# Add to top of conftest.py:
+import json  # if not already there
 
-from tests.conftest import FAKE_AGENT_ID, FAKE_AGENT_URL, wait_for_task
-
-
-def make_sse_event(state: str, text: str) -> dict:
-    """Build a TaskStatusUpdateEvent dict as stream_message would yield."""
-    return {
+def a2a_sse_event(text: str, state: str = "completed") -> bytes:
+    """Single SSE event in the format stream_message expects."""
+    event_data = {
         "result": {
             "status": {
                 "state": state,
@@ -414,51 +375,106 @@ def make_sse_event(state: str, text: str) -> dict:
             }
         }
     }
+    return f"data: {json.dumps(event_data)}\n\n".encode()
 
 
-async def _sse_stream(*events):
-    """Async generator that yields the given event dicts."""
+def a2a_sse_response(text: str, state: str = "completed") -> httpx.Response:
+    """SSE httpx.Response that stream_message will parse as one event."""
+    return httpx.Response(
+        200,
+        content=a2a_sse_event(f"ECHO: {text.upper()}", state),
+        headers={"content-type": "text/event-stream"},
+    )
+
+
+def a2a_rpc_callback(text: str, state: str = "completed"):
+    """SSE callback for httpx_mock — replaces the old JSON-RPC version."""
+    def callback(request: httpx.Request) -> httpx.Response:
+        return a2a_sse_response(text, state)
+    return callback
+```
+
+Remove the old `make_a2a_response`, `a2a_rpc`, and `a2a_rpc_callback` functions. Keep `a2a_cancel_response` as-is.
+
+- [ ] **Run the existing lifecycle tests to confirm they still pass** (routes.py not changed yet — this just validates the SSE helper format)
+
+```bash
+pytest tests/test_task_lifecycle.py -v
+```
+Expected: all pass (routes still uses `send_message`, tests pass because `a2a_rpc_callback` format doesn't matter until Task 4b)
+
+- [ ] **Write the failing streaming tests**
+
+```python
+# tests/test_node_output_stream.py
+from __future__ import annotations
+import json
+import pytest
+from unittest.mock import AsyncMock, patch
+
+from tests.conftest import FAKE_AGENT_ID, wait_for_task
+
+
+def make_sse_event(state: str, text: str) -> dict:
+    return {"result": {"status": {"state": state, "message": {"parts": [{"text": text}]}}}}
+
+
+async def _gen(*events):
     for e in events:
         yield e
 
 
 async def test_node_outputs_populated_after_stream(client, task_store):
-    """node_outputs on the task record should contain outputs from NODE_OUTPUT events."""
     node_payload = json.dumps({"output": "HELLO WORLD"})
 
     async def fake_stream(*args, **kwargs):
-        yield make_sse_event("working", "Processing…")
         yield make_sse_event("working", "Running node: process")
         yield make_sse_event("working", f"NODE_OUTPUT::process::{node_payload}")
         yield make_sse_event("completed", "HELLO WORLD")
 
     with patch("control_plane.routes.A2AClient") as MockClient:
-        instance = MockClient.return_value
-        instance.stream_message = fake_stream
-        instance.close = AsyncMock()
-
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
         resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello"})
         task_id = resp.json()["task_id"]
         result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
 
     assert result["state"] == "completed"
-    assert "process" in result["node_outputs"]
-    assert json.loads(result["node_outputs"]["process"]) == {"output": "HELLO WORLD"}
+    assert result["node_outputs"]["process"] == node_payload
 
 
-async def test_node_output_with_double_colon_in_json(client, task_store):
-    """NODE_OUTPUT parser must use split('::', 2) so :: inside JSON is preserved."""
-    payload_with_colons = json.dumps({"url": "http://example.com::8080/path"})
+async def test_running_node_tracked_in_record(client, task_store):
+    """running_node in the task dict should reflect the currently-executing node."""
+    snapshots = []
 
     async def fake_stream(*args, **kwargs):
-        yield make_sse_event("working", f"NODE_OUTPUT::mynode::{payload_with_colons}")
+        yield make_sse_event("working", "Running node: process")
+        # After this, control plane should publish with running_node="process"
+        yield make_sse_event("working", f"NODE_OUTPUT::process::{json.dumps({})}")
         yield make_sse_event("completed", "done")
 
     with patch("control_plane.routes.A2AClient") as MockClient:
-        instance = MockClient.return_value
-        instance.stream_message = fake_stream
-        instance.close = AsyncMock()
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
+        resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello"})
+        task_id = resp.json()["task_id"]
+        result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
 
+    assert result["state"] == "completed"
+    # After completion running_node should be cleared
+    assert result["running_node"] == ""
+
+
+async def test_node_output_with_double_colon_in_json(client, task_store):
+    payload = json.dumps({"url": "http://example.com::8080/path"})
+
+    async def fake_stream(*args, **kwargs):
+        yield make_sse_event("working", f"NODE_OUTPUT::mynode::{payload}")
+        yield make_sse_event("completed", "done")
+
+    with patch("control_plane.routes.A2AClient") as MockClient:
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
         resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello"})
         task_id = resp.json()["task_id"]
         result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
@@ -467,17 +483,14 @@ async def test_node_output_with_double_colon_in_json(client, task_store):
     assert stored["url"] == "http://example.com::8080/path"
 
 
-async def test_stream_ends_without_terminal_event_marks_failed(client, task_store):
-    """If the stream closes without a terminal event, task must be marked failed."""
+async def test_stream_ends_without_terminal_marks_failed(client, task_store):
     async def fake_stream(*args, **kwargs):
         yield make_sse_event("working", "Running node: process")
-        # stream ends here with no completed/failed/canceled event
+        # stream ends here
 
     with patch("control_plane.routes.A2AClient") as MockClient:
-        instance = MockClient.return_value
-        instance.stream_message = fake_stream
-        instance.close = AsyncMock()
-
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
         resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello"})
         task_id = resp.json()["task_id"]
         result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
@@ -486,17 +499,14 @@ async def test_stream_ends_without_terminal_event_marks_failed(client, task_stor
     assert "terminal" in result["error"].lower()
 
 
-async def test_invalid_json_in_node_output_does_not_crash(client, task_store):
-    """Malformed NODE_OUTPUT JSON should be skipped — task still completes."""
+async def test_invalid_node_output_json_skipped(client, task_store):
     async def fake_stream(*args, **kwargs):
         yield make_sse_event("working", "NODE_OUTPUT::badnode::NOT_VALID_JSON")
         yield make_sse_event("completed", "fine")
 
     with patch("control_plane.routes.A2AClient") as MockClient:
-        instance = MockClient.return_value
-        instance.stream_message = fake_stream
-        instance.close = AsyncMock()
-
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
         resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "hello"})
         task_id = resp.json()["task_id"]
         result = await wait_for_task(client, FAKE_AGENT_ID, task_id)
@@ -505,16 +515,18 @@ async def test_invalid_json_in_node_output_does_not_crash(client, task_store):
     assert "badnode" not in result["node_outputs"]
 ```
 
-- [ ] **Run tests to confirm they fail**
+- [ ] **Run to confirm they fail**
 
 ```bash
 pytest tests/test_node_output_stream.py -v
 ```
-Expected: failures (routes.py still uses `send_message`)
+Expected: failures (routes still uses `send_message`)
 
-- [ ] **Replace `send_message` with streaming loop in `_run_task` in `control_plane/routes.py`**
+- [ ] **Rewrite `_run_task` in `control_plane/routes.py`**
 
-Replace the block starting at `result = await client.send_message(...)` through to `record.a2a_task = result` with the streaming loop from the spec. The full replacement:
+Add `import json` at the top of `routes.py` (it's currently missing).
+
+Replace the block from `result = await client.send_message(...)` through to `record.a2a_task = result` with:
 
 ```python
 gen = client.stream_message(
@@ -535,41 +547,111 @@ try:
                 try:
                     json.loads(json_payload)  # validate
                     record.node_outputs[node_name] = json_payload
+                    record.running_node = ""   # node just completed
                     await _task_store.save(record)
                     await _broker.publish(task_id, record.to_dict())
                 except json.JSONDecodeError:
                     logger.warning("node_output_invalid_json", task_id=task_id, node=node_name)
             continue
 
+        # Track currently-running node (non-NODE_OUTPUT working events)
+        if state_str == "working" and text_val.startswith("Running node: "):
+            node_name = text_val[len("Running node: "):]
+            record.running_node = node_name
+            await _task_store.save(record)
+            await _broker.publish(task_id, record.to_dict())
+            continue
+
         if state_str in ("completed", "failed", "canceled"):
             record.state = TaskState(state_str)
             record.output_text = text_val
+            record.running_node = ""
             if record.state == TaskState.FAILED:
                 record.error = text_val or "Agent returned failed state with no details"
             break
     else:
-        record.state = TaskState.FAILED
-        record.error = "Stream ended without a terminal status event"
+        # Only mark failed if the cancel endpoint hasn't already set a terminal state.
+        # `_run_task` holds its own in-memory `record` copy; the cancel endpoint writes
+        # a fresh copy to the store and sets CANCELED — we must not overwrite it.
+        terminal = {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED}
+        fresh = await _task_store.get(task_id)
+        if fresh is None or fresh.state not in terminal:
+            record.state = TaskState.FAILED
+            record.error = "Stream ended without a terminal status event"
+        else:
+            record.state = fresh.state
 finally:
     await gen.aclose()
 ```
 
-Remove the old `status`, `state_str`, `output`, `msg`, `parts` variable extraction that followed `send_message`. Keep all existing `except` handlers and the `finally` block (`client.close()`, `instance.active_tasks`). Keep `record.a2a_task = {}` (or remove it — the field is no longer populated from streaming but can stay as an empty dict default).
+Keep all five `except` handlers and the `finally` block unchanged. Keep `task_duration`, `tasks_completed`, `tasks_failed` metric recording after the loop. Keep the final `await _task_store.save(record)` and `await _broker.publish(task_id, record.to_dict())` calls.
 
-Also add `import json` to the top of `routes.py` if not already present. (Check: it's not imported currently — add it.)
+- [ ] **Update `test_cancel_task` in `tests/test_task_lifecycle.py`**
+
+With streaming, a mock that emits only `state="working"` events and then closes will trigger the `for...else` clause — the task would end as `failed` (or `canceled` if the cancel endpoint raced ahead). The old static `a2a_rpc_callback("to cancel", state="working")` approach no longer works. Replace `test_cancel_task` with a patched version that suspends the stream via `asyncio.Event`:
+
+```python
+async def test_cancel_task(client, httpx_mock: HTTPXMock):
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    hold = asyncio.Event()
+
+    async def fake_stream(*args, **kwargs):
+        yield {"result": {"status": {"state": "working", "message": {"parts": [{"text": "Running node: process"}]}}}}
+        await hold.wait()  # suspend until cancel fires
+
+    task_id_ref = [None]
+
+    with patch("control_plane.routes.A2AClient") as MockClient:
+        # stream_message keeps the task alive until hold is set
+        MockClient.return_value.stream_message = fake_stream
+        MockClient.return_value.close = AsyncMock()
+
+        # cancel_task is called by the cancel endpoint — mock it to unblock the stream
+        async def fake_cancel(*args, **kwargs):
+            hold.set()
+        MockClient.return_value.cancel_task = AsyncMock(side_effect=fake_cancel)
+
+        resp = await client.post(f"/agents/{FAKE_AGENT_ID}/tasks", json={"text": "to cancel"})
+        assert resp.status_code == 202
+        task_id_ref[0] = resp.json()["task_id"]
+        task_id = task_id_ref[0]
+
+        # Wait until _run_task has processed the "Running node" event (state=working in record)
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while asyncio.get_event_loop().time() < deadline:
+            r = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+            if r.status_code == 200 and r.json()["state"] == "working":
+                break
+            await asyncio.sleep(0.05)
+        else:
+            pytest.fail("Task did not reach working state within timeout")
+
+        resp = await client.delete(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+
+    resp = await client.get(f"/agents/{FAKE_AGENT_ID}/tasks/{task_id}")
+    assert resp.json()["state"] == "canceled"
+```
+
+> **Why the hold pattern works:** The cancel endpoint calls `MockClient.return_value.cancel_task` which sets `hold` and returns, then stores `CANCELED` state. The stream then unblocks and ends (without a terminal SSE event), hitting the `else` guard. The guard re-reads the store, finds `state=canceled` (already terminal), and does NOT overwrite it.
+
+> **Why `state == "working"` is observable:** `_run_task` sets `record.state = TaskState.WORKING` right before entering the streaming loop (this is existing code that is not changed by this plan). The "Running node: process" event updates `running_node` but `state` is already `working`. The polling loop correctly observes `working`.
 
 - [ ] **Run all tests**
 
 ```bash
 pytest tests/ -v
 ```
-Expected: all tests pass, including the 4 new streaming tests
+Expected: all tests pass, including all 5 new streaming tests
 
 - [ ] **Commit**
 
 ```bash
-git add control_plane/routes.py tests/test_node_output_stream.py
-git commit -m "feat: switch _run_task to stream_message, capture per-node outputs"
+git add control_plane/routes.py tests/conftest.py tests/test_node_output_stream.py tests/test_task_lifecycle.py
+git commit -m "feat: switch _run_task to stream_message, track running_node and node_outputs"
 ```
 
 ---
@@ -579,9 +661,7 @@ git commit -m "feat: switch _run_task to stream_message, capture per-node output
 **Files:**
 - Create: `dashboard/src/components/TaskGraphModal/NodeOutputPanel.jsx`
 
-The output panel is a pure display component with no external dependencies beyond Mantine — build it first so it can be tested in isolation.
-
-- [ ] **Create the directory and file**
+- [ ] **Create directory and file**
 
 ```bash
 mkdir -p dashboard/src/components/TaskGraphModal
@@ -609,9 +689,7 @@ function renderValue(value) {
       return (
         <Group gap="xs" wrap="wrap">
           {value.map((v, i) => (
-            <Badge key={i} variant="outline" color="hud-cyan" size="sm">
-              {v}
-            </Badge>
+            <Badge key={i} variant="outline" color="hud-cyan" size="sm">{v}</Badge>
           ))}
         </Group>
       );
@@ -622,7 +700,6 @@ function renderValue(value) {
       </List>
     );
   }
-  // object
   return (
     <Code block style={{ color: "var(--hud-cyan)", backgroundColor: "var(--hud-bg-surface)", fontSize: 11 }}>
       {JSON.stringify(value, null, 2)}
@@ -633,73 +710,37 @@ function renderValue(value) {
 export default function NodeOutputPanel({ nodeId, nodeOutputJson, nodeState, onClose }) {
   const [tab, setTab] = useState("formatted");
 
-  const label = (
+  const header = (
     <Group justify="space-between" mb="sm">
       <Text size="xs" fw={600} style={{ color: "var(--hud-cyan)", letterSpacing: "1px", textTransform: "uppercase" }}>
         [ {nodeId} ] OUTPUT
       </Text>
-      <Text
-        size="xs"
-        style={{ color: "var(--hud-text-dimmed)", cursor: "pointer" }}
-        onClick={onClose}
-      >
+      <Text size="xs" style={{ color: "var(--hud-text-dimmed)", cursor: "pointer" }} onClick={onClose}>
         ✕
       </Text>
     </Group>
   );
 
-  // Empty states — checked before rendering tabs
   if (nodeOutputJson === undefined && nodeState === "running") {
-    return (
-      <div style={{ padding: "12px" }}>
-        {label}
-        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>
-          Node is running
-          <span style={{ animation: "blink-cursor 1s step-end infinite" }}>_</span>
-        </Text>
-      </div>
-    );
+    return <div style={{ padding: 12 }}>{header}<Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Node is running<span style={{ animation: "blink-cursor 1s step-end infinite" }}>_</span></Text></div>;
   }
-
   if (nodeOutputJson === undefined && nodeState === "pending") {
-    return (
-      <div style={{ padding: "12px" }}>
-        {label}
-        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Node has not run yet</Text>
-      </div>
-    );
+    return <div style={{ padding: 12 }}>{header}<Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Node has not run yet</Text></div>;
   }
-
   if (nodeOutputJson === undefined) {
-    return (
-      <div style={{ padding: "12px" }}>
-        {label}
-        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Output not available for this task</Text>
-      </div>
-    );
+    return <div style={{ padding: 12 }}>{header}<Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Output not available for this task</Text></div>;
   }
-
   if (nodeOutputJson === "{}") {
-    return (
-      <div style={{ padding: "12px" }}>
-        {label}
-        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Node produced no output</Text>
-      </div>
-    );
+    return <div style={{ padding: 12 }}>{header}<Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>Node produced no output</Text></div>;
   }
 
   let parsed;
-  let parseError = false;
   try {
     parsed = JSON.parse(nodeOutputJson);
   } catch {
-    parseError = true;
-  }
-
-  if (parseError) {
     return (
-      <div style={{ padding: "12px" }}>
-        {label}
+      <div style={{ padding: 12 }}>
+        {header}
         <Badge color="hud-amber" variant="light" mb="xs">Parse error</Badge>
         <Code block style={{ color: "var(--hud-text-primary)", backgroundColor: "var(--hud-bg-surface)", fontSize: 11 }}>
           {nodeOutputJson}
@@ -709,46 +750,25 @@ export default function NodeOutputPanel({ nodeId, nodeOutputJson, nodeState, onC
   }
 
   return (
-    <div style={{ padding: "12px", height: "100%", overflow: "auto" }}>
-      {label}
+    <div style={{ padding: 12, height: "100%", overflow: "auto" }}>
+      {header}
       <Tabs value={tab} onChange={setTab}>
         <Tabs.List mb="sm">
           <Tabs.Tab value="formatted" style={{ fontSize: 11, letterSpacing: "1px" }}>FORMATTED</Tabs.Tab>
           <Tabs.Tab value="raw" style={{ fontSize: 11, letterSpacing: "1px" }}>RAW</Tabs.Tab>
         </Tabs.List>
-
         <Tabs.Panel value="formatted">
           <Stack gap="sm">
             {Object.entries(parsed).map(([key, value]) => (
               <div key={key}>
-                <Text
-                  size="xs"
-                  mb={4}
-                  style={{
-                    color: "var(--hud-text-dimmed)",
-                    letterSpacing: "1px",
-                    textTransform: "uppercase",
-                    fontSize: 11,
-                  }}
-                >
-                  {key}
-                </Text>
+                <Text size="xs" mb={4} style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px", textTransform: "uppercase", fontSize: 11 }}>{key}</Text>
                 {renderValue(value)}
               </div>
             ))}
           </Stack>
         </Tabs.Panel>
-
         <Tabs.Panel value="raw">
-          <Code
-            block
-            style={{
-              color: "var(--hud-cyan)",
-              backgroundColor: "var(--hud-bg-surface)",
-              fontSize: 11,
-              whiteSpace: "pre-wrap",
-            }}
-          >
+          <Code block style={{ color: "var(--hud-cyan)", backgroundColor: "var(--hud-bg-surface)", fontSize: 11, whiteSpace: "pre-wrap" }}>
             {JSON.stringify(parsed, null, 2)}
           </Code>
         </Tabs.Panel>
@@ -758,18 +778,17 @@ export default function NodeOutputPanel({ nodeId, nodeOutputJson, nodeState, onC
 }
 ```
 
-- [ ] **Verify the dashboard still builds**
+- [ ] **Verify build**
 
 ```bash
 cd dashboard && npm run build
 ```
-Expected: build succeeds (new file not yet imported anywhere)
 
 - [ ] **Commit**
 
 ```bash
 git add dashboard/src/components/TaskGraphModal/NodeOutputPanel.jsx
-git commit -m "feat: add NodeOutputPanel component with formatted/raw tabs"
+git commit -m "feat: add NodeOutputPanel with formatted/raw tabs"
 ```
 
 ---
@@ -778,6 +797,8 @@ git commit -m "feat: add NodeOutputPanel component with formatted/raw tabs"
 
 **Files:**
 - Create: `dashboard/src/components/TaskGraphModal/TaskFlowGraph.jsx`
+
+**Key data note:** `taskState.running_node` is the bare node name published by the backend when a `"Running node: X"` event is received. It is `""` (empty string) when no node is currently executing. Read it directly from the task dict — no local state needed.
 
 - [ ] **Create the file**
 
@@ -788,85 +809,24 @@ import { ReactFlow, Background, Controls } from "@xyflow/react";
 import { Text } from "@mantine/core";
 import { computeLayout } from "../graph/layout";
 
-// Execution state → visual style
 const STATE_STYLES = {
-  pending: {
-    background: "#0d1117",
-    border: "1px solid #374151",
-    color: "#6b7280",
-    opacity: 0.5,
-    boxShadow: "none",
-  },
-  running: {
-    background: "#1a1200",
-    border: "1px solid #f59e0b",
-    color: "#fbbf24",
-    opacity: 1,
-    boxShadow: "0 0 12px rgba(245,158,11,0.5)",
-  },
-  completed: {
-    background: "#0a1a0a",
-    border: "1px solid #22c55e",
-    color: "#4ade80",
-    opacity: 1,
-    boxShadow: "none",
-  },
-  failed: {
-    background: "#1a0505",
-    border: "1px solid #ef4444",
-    color: "#f87171",
-    opacity: 1,
-    boxShadow: "none",
-  },
-  selected: {
-    background: "#001a2a",
-    border: "2px solid #00d4ff",
-    color: "#00d4ff",
-    opacity: 1,
-    boxShadow: "0 0 14px rgba(0,212,255,0.3)",
-  },
+  pending:   { background: "#0d1117", border: "1px solid #374151",  color: "#6b7280", opacity: 0.5, boxShadow: "none" },
+  running:   { background: "#1a1200", border: "1px solid #f59e0b",  color: "#fbbf24", opacity: 1,   boxShadow: "0 0 12px rgba(245,158,11,0.5)" },
+  completed: { background: "#0a1a0a", border: "1px solid #22c55e",  color: "#4ade80", opacity: 1,   boxShadow: "none" },
+  failed:    { background: "#1a0505", border: "1px solid #ef4444",  color: "#f87171", opacity: 1,   boxShadow: "none" },
+  selected:  { background: "#001a2a", border: "2px solid #00d4ff",  color: "#00d4ff", opacity: 1,   boxShadow: "0 0 14px rgba(0,212,255,0.3)" },
 };
 
 const DOT_COLORS = {
-  running: "#f59e0b",
-  completed: "#22c55e",
-  failed: "#ef4444",
-  selected: "#00d4ff",
+  running: "#f59e0b", completed: "#22c55e", failed: "#ef4444", selected: "#00d4ff",
 };
 
 function ExecutionNode({ data }) {
   const style = STATE_STYLES[data.executionState] || STATE_STYLES.pending;
   const dotColor = DOT_COLORS[data.executionState];
-
   return (
-    <div
-      style={{
-        ...style,
-        borderRadius: 0,
-        minWidth: 140,
-        padding: "6px 12px",
-        fontFamily: "monospace",
-        fontSize: 11,
-        letterSpacing: "0.5px",
-        textTransform: "uppercase",
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        cursor: "pointer",
-      }}
-    >
-      {dotColor && (
-        <span
-          style={{
-            display: "inline-block",
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            backgroundColor: dotColor,
-            flexShrink: 0,
-          }}
-        />
-      )}
+    <div style={{ ...style, borderRadius: 0, minWidth: 140, padding: "6px 12px", fontFamily: "monospace", fontSize: 11, letterSpacing: "0.5px", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+      {dotColor && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", backgroundColor: dotColor, flexShrink: 0 }} />}
       {data.label}
     </div>
   );
@@ -874,15 +834,15 @@ function ExecutionNode({ data }) {
 
 const nodeTypes = { executionNode: ExecutionNode };
 
-function getNodeExecutionState({ bareId, selectedNodeId, runningNode, nodeOutputs, taskFailed }) {
+function getExecutionState({ bareId, selectedNodeId, runningNode, nodeOutputs, taskFailed }) {
   if (bareId === selectedNodeId) return "selected";
-  if (bareId === runningNode) return "running";
+  if (runningNode && bareId === runningNode) return "running";
   if (nodeOutputs && bareId in nodeOutputs) return "completed";
-  if (taskFailed && bareId === runningNode) return "failed";
+  if (taskFailed && nodeOutputs && !(bareId in nodeOutputs)) return "failed";
   return "pending";
 }
 
-export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, runningNode, onNodeSelect }) {
+export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, onNodeSelect }) {
   if (!agentData) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
@@ -894,6 +854,7 @@ export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, ru
   }
 
   const nodeOutputs = taskState?.node_outputs;
+  const runningNode = taskState?.running_node || null;
   const taskFailed = taskState?.state === "failed";
 
   const { nodes: rawNodes, edges } = useMemo(
@@ -901,25 +862,12 @@ export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, ru
     [agentData]
   );
 
-  // Patch nodes: swap type to executionNode and inject executionState
-  const nodes = useMemo(() => {
-    return rawNodes.map((node) => {
-      if (node.type !== "graphNode") return node; // leave agentGroup nodes alone
-      const bareId = node.id.split(":").slice(1).join(":");
-      const executionState = getNodeExecutionState({
-        bareId,
-        selectedNodeId,
-        runningNode,
-        nodeOutputs,
-        taskFailed,
-      });
-      return {
-        ...node,
-        type: "executionNode",
-        data: { ...node.data, executionState },
-      };
-    });
-  }, [rawNodes, selectedNodeId, runningNode, nodeOutputs, taskFailed]);
+  const nodes = useMemo(() => rawNodes.map((node) => {
+    if (node.type !== "graphNode") return node;
+    const bareId = node.id.split(":").slice(1).join(":");
+    const executionState = getExecutionState({ bareId, selectedNodeId, runningNode, nodeOutputs, taskFailed });
+    return { ...node, type: "executionNode", data: { ...node.data, executionState } };
+  }), [rawNodes, selectedNodeId, runningNode, nodeOutputs, taskFailed]);
 
   return (
     <ReactFlow
@@ -933,37 +881,30 @@ export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, ru
       elementsSelectable={true}
       onNodeClick={(_, node) => {
         if (node.type !== "executionNode") return;
-        const bareId = node.id.split(":").slice(1).join(":");
-        onNodeSelect(bareId);
+        onNodeSelect(node.id.split(":").slice(1).join(":"));
       }}
       proOptions={{ hideAttribution: true }}
     >
       <Background color="rgba(0, 212, 255, 0.06)" gap={20} />
-      <Controls
-        showInteractive={false}
-        style={{
-          background: "var(--hud-bg-panel)",
-          border: "1px solid var(--hud-border)",
-          borderRadius: 0,
-        }}
-      />
+      <Controls showInteractive={false} style={{ background: "var(--hud-bg-panel)", border: "1px solid var(--hud-border)", borderRadius: 0 }} />
     </ReactFlow>
   );
 }
 ```
 
-- [ ] **Verify the dashboard still builds**
+**Note on `failed` state:** when `taskState.state === "failed"`, any node that has NO entry in `node_outputs` renders as `"failed"`. This is a conservative heuristic (all unfinished nodes look failed) since the exact failed node cannot be determined from the stored data. Nodes that completed before the failure remain green.
+
+- [ ] **Verify build**
 
 ```bash
 cd dashboard && npm run build
 ```
-Expected: build succeeds
 
 - [ ] **Commit**
 
 ```bash
 git add dashboard/src/components/TaskGraphModal/TaskFlowGraph.jsx
-git commit -m "feat: add TaskFlowGraph component with execution state overlay"
+git commit -m "feat: add TaskFlowGraph with execution-state overlay"
 ```
 
 ---
@@ -973,93 +914,43 @@ git commit -m "feat: add TaskFlowGraph component with execution state overlay"
 **Files:**
 - Create: `dashboard/src/components/TaskGraphModal.jsx`
 
+**Key design note:** `runningNode` is NOT tracked in local state. It comes directly from `taskState.running_node` (populated by the backend via WS). This ensures the amber "running" dot reflects actual backend state.
+
 - [ ] **Create the file**
 
 ```jsx
 // dashboard/src/components/TaskGraphModal.jsx
 import { useState, useEffect } from "react";
-import { Modal, Stack, Text, Badge, Code, Button, Group, Box } from "@mantine/core";
+import { Modal, Stack, Text, Badge, Code, Button, Group } from "@mantine/core";
 import { cancelTask, subscribeToTask } from "../hooks/useApi";
 import TaskFlowGraph from "./TaskGraphModal/TaskFlowGraph";
 import NodeOutputPanel from "./TaskGraphModal/NodeOutputPanel";
 
 const STATE_COLORS = {
-  completed: "hud-green",
-  working: "hud-amber",
-  submitted: "gray",
-  canceled: "hud-red",
-  failed: "hud-red",
-  "input-required": "hud-violet",
+  completed: "hud-green", working: "hud-amber", submitted: "gray",
+  canceled: "hud-red", failed: "hud-red", "input-required": "hud-violet",
 };
 
 const LIVE_STATES = new Set(["submitted", "working"]);
 
-function extractStatusText(wsMessage) {
-  // Extract the latest status message text from a WS task dict.
-  // The WS payload is record.to_dict() — it doesn't carry the streaming
-  // status text directly. The runningNode is inferred from the last
-  // non-NODE_OUTPUT status. We track this separately via the broker
-  // publishing record.to_dict() after each node. Since the backend saves
-  // after each NODE_OUTPUT and publishes the record, we infer runningNode
-  // from the most recent node key added to node_outputs.
-  return null; // handled by node_outputs diff below
-}
-
 export default function TaskGraphModal({ task, graphData, onClose, onCancelled }) {
   const [taskState, setTaskState] = useState(task);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [runningNode, setRunningNode] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  // Reset state when task changes
   useEffect(() => {
     setTaskState(task);
     setSelectedNodeId(null);
-    setRunningNode(null);
     setCancelling(false);
     setConfirmCancel(false);
   }, [task?.task_id]);
 
-  // WS subscription for live tasks
   useEffect(() => {
     if (!task || !LIVE_STATES.has(task.state)) return;
-
-    const unsub = subscribeToTask(task.task_id, (msg) => {
-      setTaskState(msg);
-      // Infer runningNode: the most recently added key in node_outputs
-      // that isn't yet present in our previous state. Alternatively, the
-      // backend publishes after each NODE_OUTPUT so node_outputs grows by one
-      // key per message. We diff to find the newest key.
-      if (msg.node_outputs) {
-        const keys = Object.keys(msg.node_outputs);
-        if (keys.length > 0) {
-          // The last key added is the most recently completed node.
-          // After completion it's "completed", not "running" — clear runningNode
-          // when we get the completed key. The running node is the one the
-          // executor emits "Running node:" for just before NODE_OUTPUT.
-          // Since we don't have the raw status text here, we track runningNode
-          // as cleared whenever a new key appears (it just completed).
-          setRunningNode(null);
-        }
-      }
-      if (!LIVE_STATES.has(msg.state)) {
-        setRunningNode(null);
-      }
-    });
-
+    const unsub = subscribeToTask(task.task_id, (msg) => setTaskState(msg));
     return unsub;
   }, [task?.task_id, task?.state]);
-
-  // Note: runningNode tracking via the "Running node: X" message text is not
-  // available from record.to_dict() WS payloads (those only carry state fields).
-  // The broker publishes record.to_dict() which includes node_outputs but not
-  // the raw status text. As a result, a node shows "running" only briefly —
-  // between when the executor emits "Running node: X" and when it emits
-  // NODE_OUTPUT::X (which triggers the broker publish).
-  // The visual effect: nodes transition pending → completed without a running
-  // flash via WS. This is acceptable. The running state IS visible if the
-  // control plane is extended to publish on every status event (future work).
 
   if (!task) return null;
 
@@ -1080,6 +971,7 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
     }
   };
 
+  // nodeOutputJson: undefined if node_outputs absent (old record), undefined if key missing, else string
   const nodeOutputs = taskState?.node_outputs;
   const nodeOutputJson = selectedNodeId
     ? (nodeOutputs === undefined ? undefined : nodeOutputs?.[selectedNodeId])
@@ -1087,9 +979,10 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
 
   const nodeState = (() => {
     if (!selectedNodeId) return "pending";
-    if (taskState?.state === "failed" && selectedNodeId === runningNode) return "failed";
+    const runningNode = taskState?.running_node;
+    if (taskState?.state === "failed" && nodeOutputs && !(selectedNodeId in nodeOutputs)) return "failed";
     if (nodeOutputs?.[selectedNodeId] !== undefined) return "completed";
-    if (selectedNodeId === runningNode) return "running";
+    if (runningNode && selectedNodeId === runningNode) return "running";
     return "pending";
   })();
 
@@ -1098,37 +991,24 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
       opened={!!task}
       onClose={onClose}
       fullScreen
-      withCloseButton={true}
-      title={
-        <Text fw={600} style={{ textTransform: "uppercase", letterSpacing: "2px", fontSize: 14 }}>
-          [ TASK GRAPH ]
-        </Text>
-      }
-      styles={{
-        body: { padding: 0, height: "calc(100vh - 60px)", display: "flex" },
-        content: { display: "flex", flexDirection: "column" },
-      }}
+      title={<Text fw={600} style={{ textTransform: "uppercase", letterSpacing: "2px", fontSize: 14 }}>[ TASK GRAPH ]</Text>}
+      styles={{ body: { padding: 0, height: "calc(100vh - 60px)", display: "flex" }, content: { display: "flex", flexDirection: "column" } }}
     >
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Left: graph (65%) */}
+        {/* Graph — 65% */}
         <div style={{ flex: "0 0 65%", borderRight: "1px solid var(--hud-border)" }}>
           <TaskFlowGraph
             agentData={agentData}
             taskState={taskState}
             selectedNodeId={selectedNodeId}
-            runningNode={runningNode}
             onNodeSelect={setSelectedNodeId}
           />
         </div>
 
-        {/* Right: metadata + output panel (35%) */}
+        {/* Right panel — 35% */}
         <div style={{ flex: "0 0 35%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {/* Task metadata */}
-          <Stack
-            gap="xs"
-            p="md"
-            style={{ borderBottom: "1px solid var(--hud-border)", flexShrink: 0 }}
-          >
+          {/* Metadata */}
+          <Stack gap="xs" p="md" style={{ borderBottom: "1px solid var(--hud-border)", flexShrink: 0 }}>
             <div>
               <Text size="xs" style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px" }} tt="uppercase">Task ID</Text>
               <Code style={{ fontSize: 11 }}>{taskState?.task_id}</Code>
@@ -1139,15 +1019,11 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
             </div>
             <div>
               <Text size="xs" style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px" }} tt="uppercase">State</Text>
-              <Badge color={STATE_COLORS[taskState?.state] || "gray"} variant="light">
-                {taskState?.state}
-              </Badge>
+              <Badge color={STATE_COLORS[taskState?.state] || "gray"} variant="light">{taskState?.state}</Badge>
             </div>
             <div>
               <Text size="xs" style={{ color: "var(--hud-text-dimmed)", letterSpacing: "1px" }} tt="uppercase">Created</Text>
-              <Text size="sm">
-                {taskState?.created_at ? new Date(taskState.created_at * 1000).toLocaleString() : "—"}
-              </Text>
+              <Text size="sm">{taskState?.created_at ? new Date(taskState.created_at * 1000).toLocaleString() : "—"}</Text>
             </div>
             {canCancel && (
               <Button
@@ -1156,18 +1032,14 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
                 size="xs"
                 onClick={handleCancel}
                 loading={cancelling}
-                style={
-                  confirmCancel
-                    ? { boxShadow: "0 0 12px rgba(255, 61, 61, 0.3)" }
-                    : { borderColor: "var(--hud-red)", color: "var(--hud-red)" }
-                }
+                style={confirmCancel ? { boxShadow: "0 0 12px rgba(255,61,61,0.3)" } : { borderColor: "var(--hud-red)", color: "var(--hud-red)" }}
               >
                 {confirmCancel ? "CLICK AGAIN TO CONFIRM" : "CANCEL TASK"}
               </Button>
             )}
           </Stack>
 
-          {/* Node output panel */}
+          {/* Node output */}
           <div style={{ flex: 1, overflow: "auto", backgroundColor: "var(--hud-bg-surface)" }}>
             {selectedNodeId ? (
               <NodeOutputPanel
@@ -1192,112 +1064,87 @@ export default function TaskGraphModal({ task, graphData, onClose, onCancelled }
 }
 ```
 
-- [ ] **Verify the dashboard builds**
+- [ ] **Verify build**
 
 ```bash
 cd dashboard && npm run build
 ```
-Expected: build succeeds
 
 - [ ] **Commit**
 
 ```bash
 git add dashboard/src/components/TaskGraphModal.jsx
-git commit -m "feat: add TaskGraphModal full-screen modal with WS subscription"
+git commit -m "feat: add TaskGraphModal full-screen modal"
 ```
 
 ---
 
-## Task 8: Wire `TaskGraphModal` into `App.jsx`, delete `TaskDetailDrawer`
+## Task 8: Wire into `App.jsx`, delete `TaskDetailDrawer`
 
 **Files:**
 - Modify: `dashboard/src/App.jsx`
 - Delete: `dashboard/src/components/TaskDetailDrawer.jsx`
 
-- [ ] **Remove `TaskDetailDrawer` from `App.jsx` and add `TaskGraphModal`**
+- [ ] **Update `dashboard/src/App.jsx`**
 
-In `dashboard/src/App.jsx`:
+1. Remove: `import TaskDetailDrawer from "./components/TaskDetailDrawer";`
+2. Add: `import TaskGraphModal from "./components/TaskGraphModal";`
+3. Replace the `<TaskDetailDrawer ... />` element with:
 
-1. Remove the import line:
-   ```js
-   import TaskDetailDrawer from "./components/TaskDetailDrawer";
-   ```
-
-2. Add the import:
-   ```js
-   import TaskGraphModal from "./components/TaskGraphModal";
-   ```
-
-3. Replace the `<TaskDetailDrawer .../>` JSX:
-   ```jsx
-   // Remove:
-   <TaskDetailDrawer
-     task={selectedTask}
-     onClose={() => setSelectedTask(null)}
-     onCancelled={handleTaskCancelled}
-   />
-
-   // Add:
-   <TaskGraphModal
-     task={selectedTask}
-     graphData={graphData}
-     onClose={() => setSelectedTask(null)}
-     onCancelled={handleTaskCancelled}
-   />
-   ```
+```jsx
+<TaskGraphModal
+  task={selectedTask}
+  graphData={graphData}
+  onClose={() => setSelectedTask(null)}
+  onCancelled={handleTaskCancelled}
+/>
+```
 
 - [ ] **Delete `TaskDetailDrawer.jsx`**
 
 ```bash
-rm dashboard/src/components/TaskDetailDrawer.jsx
+git rm dashboard/src/components/TaskDetailDrawer.jsx
 ```
 
-- [ ] **Verify the dashboard builds cleanly**
+- [ ] **Verify build and tests**
 
 ```bash
 cd dashboard && npm run build
+cd .. && pytest tests/ -v
 ```
-Expected: build succeeds with no import errors
-
-- [ ] **Run all backend tests one final time**
-
-```bash
-pytest tests/ -v
-```
-Expected: all tests pass
+Expected: build succeeds, all tests pass
 
 - [ ] **Commit**
 
 ```bash
 git add dashboard/src/App.jsx
-git rm dashboard/src/components/TaskDetailDrawer.jsx
-git commit -m "feat: replace TaskDetailDrawer with TaskGraphModal in App"
+git commit -m "feat: replace TaskDetailDrawer with TaskGraphModal, wire into App"
 ```
 
 ---
 
 ## Manual Testing Checklist
 
-Once the full stack is running (`bash run-local.sh` or `docker compose up`):
+With the full stack running (`bash run-local.sh`):
 
-- [ ] Click a **completed** task → modal opens, graph shows, all visited nodes are green
-- [ ] Click a green node → output panel shows FORMATTED tab with node data
-- [ ] Switch to RAW tab → pretty-printed JSON displayed
-- [ ] Click a node with `{}` output → "Node produced no output" shown
-- [ ] Click ✕ on output panel → panel closes, no node selected
-- [ ] Click ✕ (or outside) on modal → modal closes
-- [ ] Dispatch a **new task** → click it while running → modal opens, nodes light up as they complete
-- [ ] Click a **pending node** → "Node has not run yet"
-- [ ] Cancel a running task → state updates to canceled in modal
-- [ ] Check **TaskHistory** — clicking tasks there also opens the modal (not a drawer)
-- [ ] Echo agent (2-node graph) and Lead Analyst (fan-out graph) both render correctly
+- [ ] Click a **completed** task → modal opens, completed nodes shown green
+- [ ] Click a green node → FORMATTED tab shows structured output
+- [ ] Switch to RAW tab → pretty-printed JSON
+- [ ] Click an uncompleted node (pending task) → "Node has not run yet"
+- [ ] Click ✕ on output panel → panel closes
+- [ ] Dispatch a new task → click while running → nodes light up as they complete; currently-running node shown amber
+- [ ] Let task fail → failed nodes shown red
+- [ ] Cancel a running task → state updates in modal
+- [ ] Check **TaskHistory** tab → clicking a task there opens modal (not drawer)
+- [ ] Echo agent (2-node) and Lead Analyst (fan-out) both render correctly
 
 ---
 
-## Read Before Implementing
+## Files to Read Before Implementing
 
-- `agents/base/executor.py` — understand the `astream` loop before editing
-- `control_plane/routes.py:149-235` — the `_run_task` function being replaced
-- `control_plane/a2a_client.py:93-130` — existing `stream_message` signature
+- `agents/base/executor.py:150-171` — the `astream` loop insertion point
+- `control_plane/routes.py:149-235` — `_run_task` function being replaced
+- `control_plane/a2a_client.py:93-130` — existing `stream_message`
+- `control_plane/task_store.py:34-84` — `TaskRecord` dataclass + `from_row`
 - `dashboard/src/components/graph/layout.js` — `computeLayout` input/output format
-- `dashboard/src/hooks/useApi.js:70-76` — `subscribeToTask` signature
+- `dashboard/src/hooks/useApi.js:24,70` — `cancelTask` and `subscribeToTask` signatures

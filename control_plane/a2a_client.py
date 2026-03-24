@@ -8,7 +8,7 @@ Wraps JSON-RPC calls to agent A2A endpoints for:
 from __future__ import annotations
 
 import uuid
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -97,8 +97,18 @@ class A2AClient:
         task_id: str | None = None,
         context_id: str | None = None,
         parent_span_id: str | None = None,
-    ) -> AsyncIterator[dict[str, Any]]:
+        baselines: str = "",
+        key_questions: str = "",
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Send message/stream and yield SSE events."""
+        metadata: dict[str, Any] = {}
+        if parent_span_id:
+            metadata["parentSpanId"] = parent_span_id
+        if baselines:
+            metadata["baselines"] = baselines
+        if key_questions:
+            metadata["keyQuestions"] = key_questions
+
         message: dict[str, Any] = {
             "kind": "message",
             "role": "user",
@@ -109,8 +119,8 @@ class A2AClient:
             message["taskId"] = task_id
         if context_id:
             message["contextId"] = context_id
-        if parent_span_id:
-            message["metadata"] = {"parentSpanId": parent_span_id}
+        if metadata:
+            message["metadata"] = metadata
 
         payload = {
             "jsonrpc": "2.0",

@@ -97,7 +97,7 @@ LangGraph agents wrapped with `a2a-sdk` HTTP servers. Each agent:
 | Summarizer (`agents/summarizer/`) | 8002 | `summarizer` | Summarizes text using OpenAI LLM |
 | Relevancy (`agents/relevancy/`) | 8003 | `relevancy` | Assesses text relevancy to a question, returns JSON verdict |
 | Extraction (`agents/extraction_agent/`) | 8004 | `extraction` | Extracts structured entities/events/relationships from text |
-| Lead Analyst (`agents/lead_analyst/`) | 8005 | per-YAML | Multi-instance orchestrator: hosts N lead analysts from YAML configs, each fans out to sub-agents via A2A and aggregates results |
+| Lead Analyst (`agents/lead_analyst/`) | 8005 | per-YAML | Multi-instance orchestrator: hosts N lead analysts from YAML configs. Supports static mode (YAML-defined sub-agents fan out in parallel) and dynamic mode (discovers specialists via control plane at runtime using LangGraph `Send()`). After aggregation, always runs a meta-analysis pipeline: peripheral scan → ACH red-team → final synthesis. |
 | Specialist (`agents/specialist_agent/`) | 8006 | per-YAML | Multi-agent-per-deployment: hosts 16 LLM specialists (2 utility + 14 analytical frameworks) from YAML configs |
 | Probability (`agents/probability_agent/`) | 8007 | `probability-forecaster` | Takes concatenated specialist analyses, performs probability aggregation, disagreement detection, peripheral scanning, and generates structured briefings |
 | Knowledge Graph (`agents/knowledge_graph/`) | 8008 | `knowledge-graph` | Ingests articles/snippets into a persistent knowledge graph of entities and issues via mem0 (Neo4j + pgvector); returns structured diff + narrative |
