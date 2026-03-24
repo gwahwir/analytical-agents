@@ -17,8 +17,8 @@ This agent does **not** use mem0. It drives `asyncpg` (pgvector) and `langchain_
 
 ```
 agents/memory_agent/
-├── graph.py       # WriteGraph: extract → store (LangGraph, with retry)
-├── stores.py      # Singleton clients for pgvector (asyncpg) and Neo4j (langchain_neo4j)
+├── graph.py       # WriteGraph: extract → store (LangGraph, 2 nodes + retry)
+├── stores.py      # Singleton clients for pgvector (asyncpg), Neo4j, and embedder
 ├── executor.py    # Overrides execute() to dispatch write/search/traverse
 ├── server.py      # A2A FastAPI server, port 8009, 3 skills
 └── README.md
@@ -35,8 +35,10 @@ Three A2A skills declared on the AgentCard. Callers route to the correct skill b
 | Skill ID | `operation` value | Key Input Fields | Output |
 |---|---|---|---|
 | `memory/write` | `"write"` | `text: str`, `namespace: str` | `{ stored: bool, namespace: str, entities_added: int, relationships_added: int }` |
-| `memory/search` | `"search"` | `query: str`, `namespace: str`, `limit: int` (optional, default 5) | `{ results: [{ content: str, score: float, metadata: { entities: [...], namespace: str } }] }` |
+| `memory/search` | `"search"` | `query: str`, `namespace: str`, `limit: int` (optional, default 5) | `{ results: [{ content: str, score: float, metadata: { entities: [...], namespace: str, source: str } }] }` |
 | `memory/traverse` | `"traverse"` | `entity: str`, `namespace: str`, `depth: int` (optional, default 2) | `{ nodes: [{ name: str, type: str, namespace: str }], edges: [{ subject: str, predicate: str, object: str, namespace: str }] }` |
+
+The `metadata` object in search results is the raw JSONB column value returned verbatim from storage — not a reconstructed object.
 
 Example input body for write:
 ```json
@@ -47,26 +49,45 @@ Example input body for write:
 
 ## Executor Dispatch
 
-`MemoryAgentExecutor` subclasses `LangGraphA2AExecutor` and overrides `execute()` to handle multi-skill routing before the graph runs. `build_graph()` is implemented and returns the WriteGraph (satisfying the abstract method contract); it is only invoked for `operation: "write"`.
+`MemoryAgentExecutor` subclasses `LangGraphA2AExecutor` and overrides `execute()` entirely. `build_graph()` is implemented and returns the WriteGraph (satisfying the abstract method contract); it is only invoked for `operation: "write"`.
+
+The overridden `execute()` must replicate the base class task ID derivation and lifecycle management before branching on operation, then emit status events for all paths:
 
 ```
 execute(context, event_queue):
-  input_json = parse(context.get_user_input())
-  operation  = input_json["operation"]
+  # Replicate base class task ID + lifecycle (must happen before any branch)
+  cp_task_id = context.message.metadata.get("controlPlaneTaskId") if metadata else None
+  task_id    = cp_task_id or context.task_id or uuid4()
+  context_id = context.context_id or uuid4()
+  self.register_task(task_id)     # required for check_cancelled to work
+  try:
+    emit TaskState.working
 
-  if operation == "write":
-      run WriteGraph via self.graph.astream(...)   ← base class pattern
-  elif operation == "search":
-      result = await search_memories(input_json)
-      emit completed event with result
-  elif operation == "traverse":
-      result = await traverse_graph(input_json)
-      emit completed event with result
-  else:
-      emit failed event
+    input_json = parse(context.get_user_input())
+    operation  = input_json["operation"]
+
+    if operation == "write":
+        run WriteGraph via self.graph.astream(...)   ← base class streaming pattern
+        emit TaskState.completed with output
+    elif operation == "search":
+        result = await search_memories(task_id, input_json)
+        emit TaskState.completed with result
+    elif operation == "traverse":
+        result = await traverse_graph(task_id, input_json)
+        emit TaskState.completed with result
+    else:
+        emit TaskState.failed with "Unknown operation: ..."
+  except CancelledError:
+    emit TaskState.canceled
+  except Exception:
+    emit TaskState.failed
+  finally:
+    self.cleanup_task(task_id)   # always clean up
 ```
 
-`get_graph_topology()` (called by `GET /graph`) uses `build_graph()` and returns the WriteGraph topology only — the 3-node write flow (extract → store → done). The two direct-call paths (search, traverse) are not LangGraph nodes and are not shown in the dashboard graph; this is acceptable because they are single-step point queries with no branching.
+`task_id` is passed into `search_memories` and `traverse_graph` so they can call `check_cancelled(task_id)`.
+
+`get_graph_topology()` (called by `GET /graph`) uses `build_graph()` and returns the WriteGraph topology — the 2-node write flow (`extract_entities` → `store_memories`). The two direct-call paths (search, traverse) are not LangGraph nodes and are not shown in the dashboard graph; this is acceptable because they are single-step point queries with no branching.
 
 ---
 
@@ -74,38 +95,50 @@ execute(context, event_queue):
 
 ### Write (`operation: "write"`)
 
+The WriteGraph has **2 nodes**: `extract_entities` and `store_memories`. It follows the same self-correcting retry pattern as `knowledge_graph/graph.py`.
+
 ```
 raw text + namespace
-  → [Node 1: extract]  LLM call → { entities, relationships, summary }
-                        self-correcting retry up to 3 attempts
-                        (same error-injection pattern as knowledge_graph)
-  → [Node 2: store]    asyncpg INSERT embeddings into memories table (pgvector)
-                        langchain_neo4j CREATE/MERGE nodes + relationships (Neo4j)
-  → output: { stored: true, namespace, entities_added: int, relationships_added: int }
+  → [Node: extract_entities]
+        calls executor.check_cancelled(task_id) at top (via config["configurable"])
+        LLM call → { entities, relationships, summary }
+        on JSON parse failure: increment retry_count, set extracted=None
+        conditional edge: if extracted is None and retries < 3, loop back to self
+        conditional edge: if extracted or retries exhausted, go to store_memories
+
+  → [Node: store_memories]
+        calls executor.check_cancelled(task_id) at top (via config["configurable"])
+        asyncpg INSERT: one row per entity + one row for summary (pgvector)
+        langchain_neo4j CREATE/MERGE: nodes + relationships (Neo4j)
+        per-item failures: log warning, skip, continue
+        → END
+
+  → output state: { stored: bool, namespace: str, entities_added: int, relationships_added: int }
 ```
 
-`stored` is `true` if at least one item was successfully written to either backend; `false` only if both backends rejected all writes.
+Each node receives `executor` and `task_id` via `config["configurable"]` (same pattern as `knowledge_graph/graph.py` lines 193-195, 301-302).
+
+`stored` is `true` if at least one item was successfully written to either backend. `stored` is `false` only if both backends rejected all writes. **Important for callers:** `stored: false` is returned as a *completed* task (not failed), because write failures for individual items are partial — the task itself succeeded structurally. Callers that invoke `memory/write` must inspect the `stored` field in the completed output to detect write failures, not just check task state.
 
 ### Search (`operation: "search"`)
 
-Direct async function — no LangGraph. Steps:
-1. Embed `query` using the configured embedding model
-2. `SELECT content, metadata, 1 - (embedding <=> $vec) AS score FROM memories WHERE namespace = $ns ORDER BY embedding <=> $vec LIMIT $limit`
-3. Return `{ results: [...] }`
-
-Cancellation: `check_cancelled(task_id)` is called once before the embedding call and once before the DB query.
+Direct async function — no LangGraph:
+1. `check_cancelled(task_id)`
+2. Embed `query` using `get_embedder()`
+3. `check_cancelled(task_id)`
+4. `SELECT content, metadata, 1 - (embedding <=> $vec) AS score FROM memories WHERE namespace = $ns ORDER BY embedding <=> $vec LIMIT $limit`
+5. Return `{ results: [{content, score, metadata}] }` — `metadata` is the raw JSONB column value
 
 ### Traverse (`operation: "traverse"`)
 
-Direct async function — no LangGraph. Steps:
-1. Run Cypher via `langchain_neo4j`:
+Direct async function — no LangGraph:
+1. `check_cancelled(task_id)`
+2. Run Cypher via `langchain_neo4j`:
    ```cypher
    MATCH (n:Entity {name: $entity, namespace: $ns})-[r*1..$depth]-(m:Entity {namespace: $ns})
    RETURN n, r, m
    ```
-2. Flatten to `{ nodes: [{name, type, namespace}], edges: [{subject, predicate, object, namespace}] }`
-
-Cancellation: `check_cancelled(task_id)` is called once before the Cypher query.
+3. Flatten to `{ nodes: [{name, type, namespace}], edges: [{subject, predicate, object, namespace}] }`
 
 ---
 
@@ -129,7 +162,9 @@ CREATE INDEX IF NOT EXISTS memories_embedding_idx ON memories
     USING hnsw (embedding vector_cosine_ops);
 ```
 
-`hnsw` is used instead of `ivfflat` because it performs well on small-to-medium datasets without requiring a minimum row count to be useful (available in pgvector 0.5+, which is present in the `pgvector/pgvector:pg16-trixie` image already in docker-compose).
+`hnsw` is used instead of `ivfflat` — it performs well on small-to-medium datasets without requiring a minimum row count (available in pgvector 0.5+, present in the `pgvector/pgvector:pg16-trixie` image already in docker-compose).
+
+**Note on `MEMORY_EMBEDDING_DIMS`:** The column type `vector(N)` is fixed at table creation time. `MEMORY_EMBEDDING_DIMS` must be set to match the actual output dimensions of the embedding model before first run. There is no safe default — different models produce different sizes (e.g., `text-embedding-3-small` produces 1536 by default; Jina v5 small produces 1024). If the wrong value is set, embeddings will be silently rejected or cause schema errors. The `CREATE TABLE IF NOT EXISTS` DDL uses the value of `MEMORY_EMBEDDING_DIMS` at startup.
 
 Table and index are created on agent startup via `asyncpg` if they do not already exist.
 
@@ -143,23 +178,23 @@ Table and index are created on agent startup via `asyncpg` if they do not alread
 - Nodes: `:Entity { name: str, type: str, namespace: str }`
 - Relationships: `(a:Entity)-[:RELATES { predicate: str, namespace: str }]->(b:Entity)`
 - Namespace is a property on every node and edge; all queries filter by `namespace`.
-- Both agents (`memory_agent` and `knowledge_graph`) write to the same Neo4j instance. No conflict: `memory_agent` uses `:Entity` nodes; mem0 (used by `knowledge_graph`) uses its own internal label scheme. Coexistence is safe.
+- Both `memory_agent` and `knowledge_graph` write to the same Neo4j instance. `memory_agent` uses `:Entity` nodes; mem0 (used by `knowledge_graph`) uses its own internal label scheme. Coexistence is expected to be safe, but operators should verify no label collisions with the specific mem0 version in `requirements.txt` before pointing both agents at the same instance in production.
 
 ### pgvector coexistence with `knowledge_graph`
 
-The `knowledge_graph` agent's mem0 client manages its own tables (mem0 creates `memory_vector` or similar internal tables). The `memory_agent` creates a `memories` table — a distinct name that does not conflict with any mem0-managed table. Both agents can point at the same Postgres database safely. The `MEMORY_PG_DSN` and `MEM0_PG_DSN` env vars can point at the same or different DSNs.
+The `knowledge_graph` agent's mem0 client manages its own tables internally. The `memory_agent` creates a `memories` table — a distinct name that does not conflict with any known mem0-managed table. Both agents can point at the same Postgres database. The `MEMORY_PG_DSN` and `MEM0_PG_DSN` env vars can point at the same or different DSNs.
 
 ---
 
 ## `stores.py` — Client Singletons
 
-Two module-level singletons initialized lazily on first use:
+Three module-level singletons initialized lazily on first use:
 
-- `get_pgvector_pool()` — returns an `asyncpg` connection pool; runs `CREATE TABLE IF NOT EXISTS` on first call; requires `MEMORY_PG_DSN`
+- `get_pgvector_pool()` — returns an `asyncpg` connection pool; runs DDL on first call; requires `MEMORY_PG_DSN`
 - `get_neo4j_graph()` — returns a `langchain_neo4j` `Neo4jGraph` instance; requires `MEMORY_NEO4J_URL`, `MEMORY_NEO4J_USER`, `MEMORY_NEO4J_PASSWORD`
-- `get_embedder()` — returns an embedding callable (OpenAI or compatible); requires `MEMORY_EMBEDDING_MODEL` and `OPENAI_API_KEY`
+- `get_embedder()` — returns an embedding callable; requires `MEMORY_EMBEDDING_MODEL` and `OPENAI_API_KEY`
 
-All three raise `EnvironmentError` on first use if required env vars are missing (fail-fast, consistent with existing agents). All are thin wrappers to allow easy mocking in tests.
+All three raise `EnvironmentError` on first use if required env vars are missing. All are thin wrappers to allow easy mocking in tests.
 
 ---
 
@@ -167,14 +202,39 @@ All three raise `EnvironmentError` on first use if required env vars are missing
 
 | Scenario | Behavior |
 |---|---|
-| LLM extraction returns invalid JSON | Retry up to 3 times with error context injected into prompt |
+| LLM extraction returns invalid JSON | Retry up to 3 times with error context injected into prompt (conditional edge loop) |
 | Missing required env vars | `EnvironmentError` on first store access; agent fails to start |
-| Single entity fails to write to Neo4j | Log warning, skip, continue — partial success reported in output |
+| Single entity fails to write to Neo4j | Log warning, skip, continue |
 | Single embedding fails to insert into pgvector | Log warning, skip, continue |
-| Both backends reject all writes | `stored: false` in output; task still completes (not failed) |
+| Both backends reject all writes | `stored: false` in output; task still completes (callers must check `stored`) |
 | Unknown `operation` value | Emit `TaskState.failed` with descriptive message |
-| Task cancelled mid-write (LangGraph) | `check_cancelled(task_id)` at each node; raises `CancelledError` |
+| Task cancelled mid-write | `check_cancelled(task_id)` at top of each LangGraph node raises `CancelledError` |
 | Task cancelled mid-search or mid-traverse | `check_cancelled(task_id)` called before each I/O call |
+
+---
+
+## Dashboard — `/graph` Endpoint and `INPUT_FIELDS`
+
+`GET /graph` returns the WriteGraph topology (2 nodes: `extract_entities`, `store_memories`) plus `input_fields` for the dashboard form. Because the dashboard renders one form per agent, `INPUT_FIELDS` exposes the write skill's fields — the primary/most complex operation — as the default form. Search and traverse parameters are documented in the README for programmatic callers.
+
+```python
+INPUT_FIELDS = [
+    {"name": "operation", "label": "Operation", "type": "select",
+     "options": ["write", "search", "traverse"], "required": True},
+    {"name": "namespace", "label": "Namespace", "type": "text", "required": True,
+     "placeholder": "e.g. lead_analyst"},
+    {"name": "text", "label": "Text (write)", "type": "textarea", "required": False,
+     "placeholder": "Raw text to ingest (write operation)"},
+    {"name": "query", "label": "Query (search)", "type": "text", "required": False,
+     "placeholder": "Semantic search query"},
+    {"name": "entity", "label": "Entity (traverse)", "type": "text", "required": False,
+     "placeholder": "Entity name to traverse from"},
+    {"name": "limit", "label": "Limit (search)", "type": "number", "required": False,
+     "placeholder": "5"},
+    {"name": "depth", "label": "Depth (traverse)", "type": "number", "required": False,
+     "placeholder": "2"},
+]
+```
 
 ---
 
@@ -187,13 +247,13 @@ All three raise `EnvironmentError` on first use if required env vars are missing
 | `MEMORY_NEO4J_USER` | — | Neo4j username (required) |
 | `MEMORY_NEO4J_PASSWORD` | — | Neo4j password (required) |
 | `MEMORY_PG_DSN` | — | pgvector-enabled PostgreSQL DSN (required) |
-| `MEMORY_EMBEDDING_MODEL` | — | Embedding model name, e.g. `text-embedding-3-small` (required) |
-| `MEMORY_EMBEDDING_DIMS` | `1024` | Vector dimensions — must match the embedding model's output |
+| `MEMORY_EMBEDDING_MODEL` | — | Embedding model name (required; dims must match `MEMORY_EMBEDDING_DIMS`) |
+| `MEMORY_EMBEDDING_DIMS` | — | Vector dimensions, no default — must be set explicitly to match the model |
 | `OPENAI_API_KEY` | — | Required for LLM extraction and embeddings |
 | `OPENAI_BASE_URL` | OpenAI default | Custom OpenAI-compatible base URL |
 | `OPENAI_MODEL` | `gpt-4o-mini` | LLM model for entity extraction |
 
-`MEMORY_*` vars are intentionally separate from `MEM0_*` vars so both `memory_agent` and `knowledge_graph` can coexist pointing at the same or different backends.
+`MEMORY_*` vars are intentionally separate from `MEM0_*` vars so both agents can coexist.
 
 ---
 
@@ -204,24 +264,26 @@ File: `tests/test_memory_agent.py`
 | Test | What is mocked | What is asserted |
 |---|---|---|
 | `memory/write` happy path | LLM extraction call + asyncpg pool + Neo4j graph | Output has correct `entities_added`, `relationships_added`, `stored: true` |
-| `memory/write` retry | LLM returns invalid JSON on attempt 1, valid on attempt 2 | Task completes; retry count = 2 |
-| `memory/search` | asyncpg query (returns fake rows with embeddings + scores) | Results are ranked, namespace-filtered, match expected shape |
-| `memory/traverse` | Neo4j Cypher call | Nodes and edges match expected shape with correct properties |
-| Namespace isolation | asyncpg query | Search in namespace `A` returns no rows written to namespace `B` |
-| Cancellation (write) | `CancellableMixin.check_cancelled` raises on second call | Task reaches `canceled` state |
+| `memory/write` retry | LLM returns invalid JSON on attempt 1, valid on attempt 2 (invoke graph end-to-end; do not call node function directly) | Task completes; `retry_count` field in state = 1 after second attempt |
+| `memory/search` | `stores.get_pgvector_pool` + `stores.get_embedder` | Results are ranked, namespace-filtered, `metadata` is the raw JSONB value |
+| `memory/traverse` | `stores.get_neo4j_graph` | Nodes and edges match expected shape |
+| Namespace isolation | `stores.get_pgvector_pool` returns rows only for matching namespace | Search in namespace `A` returns 0 results |
+| Cancellation (write) | `check_cancelled` raises on second call inside a node | Task reaches `canceled` state |
 | Cancellation (search) | `check_cancelled` raises before DB query | Task reaches `canceled` state |
-| Unknown operation | No store mocks needed | Task reaches `failed` state with descriptive message |
+| Unknown operation | No store mocks | Task reaches `failed` state with message containing `"Unknown operation"` |
 
-All tests use `pytest-asyncio` (`asyncio_mode = auto`) and `pytest-httpx`. No real Neo4j or Postgres process required. Store singletons are patched at the module level (`stores.get_pgvector_pool`, `stores.get_neo4j_graph`, `stores.get_embedder`).
+Retry test note: the WriteGraph retry loop is a conditional edge (same as `knowledge_graph`). Test by calling `graph.ainvoke()` with two sequential LLM mock responses, not by calling the node function directly. See `tests/test_knowledge_graph.py` for the established pattern.
+
+All tests use `pytest-asyncio` (`asyncio_mode = auto`) and `pytest-httpx`. No real Neo4j or Postgres required. Store singletons are patched at the module level.
 
 ---
 
 ## Deployment
 
-**`docker-compose.yml`** — add `memory-agent` service depending on `control-plane`, `postgres` (already `service_healthy`), and `neo4j` (already `service_healthy`). No new infrastructure services required.
+**`docker-compose.yml`** — add `memory-agent` service depending on `control-plane`, `postgres`, and `neo4j`. No new infrastructure services required.
 
 **`run-local.sh`** — add step starting `python -m agents.memory_agent.server` with `MEMORY_*` env vars.
 
-**`Dockerfile.memory-agent`** — follows the same pattern as `Dockerfile.knowledge-graph`.
+**`Dockerfile.memory-agent`** — same pattern as `Dockerfile.knowledge-graph`.
 
-**CLAUDE.md** — add `memory_agent` row to the agents table and the env var tables.
+**`CLAUDE.md`** — add `memory_agent` row to agents table (port 8009, type `memory-agent`) and add all `MEMORY_*` env vars to the env var tables.
