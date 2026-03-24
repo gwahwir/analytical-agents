@@ -522,22 +522,6 @@ def route_to_specialists(state: LeadAnalystState) -> list:
     ]
 
 
-def check_all_specialists_done(state: LeadAnalystState) -> str:
-    """Route to peripheral_scan only after all domain specialists complete.
-
-    This router is used as a conditional edge from call_specialist node.
-    It checks if the number of results matches the number of selected specialists.
-    If all specialists are done, route to peripheral_scan. Otherwise, stay in call_specialist
-    (which will be called again for remaining specialists via Send API).
-    """
-    num_selected = len(state.get("selected_specialists", []))
-    num_results = len(state.get("results", []))
-
-    if num_results >= num_selected:
-        return "call_peripheral_scan"
-    else:
-        return "call_specialist"
-
 
 async def call_peripheral_scan(
     state: LeadAnalystState, config: RunnableConfig
@@ -978,14 +962,9 @@ def build_lead_analyst_graph(
         # Flow: discover → specialists (parallel) → peripheral_scan → aggregate → ach → synthesis → respond
         graph.add_edge("receive", "discover_and_select")
         graph.add_conditional_edges("discover_and_select", route_to_specialists, ["call_specialist"])
-        graph.add_conditional_edges(
-            "call_specialist",
-            check_all_specialists_done,
-            {
-                "call_specialist": "call_specialist",  # Loop back if not done
-                "call_peripheral_scan": "call_peripheral_scan",  # All done, proceed to peripheral scan
-            }
-        )
+        # Send() handles fan-out synchronization: all parallel call_specialist instances
+        # must complete before the graph advances. No loop needed.
+        graph.add_edge("call_specialist", "call_peripheral_scan")
     else:
         # Static mode: use YAML-defined sub_agents
         for sa in sub_agents:
