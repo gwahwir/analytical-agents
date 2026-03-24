@@ -523,18 +523,18 @@ def route_to_specialists(state: LeadAnalystState) -> list:
 
 
 def check_all_specialists_done(state: LeadAnalystState) -> str:
-    """Route to peripheral_scan only after all domain specialists complete.
+    """Route to aggregate only after all domain specialists complete.
 
     This router is used as a conditional edge from call_specialist node.
     It checks if the number of results matches the number of selected specialists.
-    If all specialists are done, route to peripheral_scan. Otherwise, stay in call_specialist
+    If all specialists are done, route to aggregate. Otherwise, stay in call_specialist
     (which will be called again for remaining specialists via Send API).
     """
     num_selected = len(state.get("selected_specialists", []))
     num_results = len(state.get("results", []))
 
     if num_results >= num_selected:
-        return "call_peripheral_scan"
+        return "aggregate"
     else:
         return "call_specialist"
 
@@ -869,12 +869,13 @@ def _make_aggregate_node(
 
         results = [(label, text) for label, text in all_results if not text.startswith("[Error")]
         if not results:
-            return {"aggregated_consensus": "No sub-agent results available."}
+            return {"aggregated_consensus": "No sub-agent results available.", "output": "No sub-agent results available."}
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             sections = [f"=== {label} ===\n{text}" for label, text in results]
-            return {"aggregated_consensus": "\n\n".join(sections)}
+            concatenated = "\n\n".join(sections)
+            return {"aggregated_consensus": concatenated, "output": concatenated}
 
         user_prompt = _build_aggregation_prompt(
             state["input"],
@@ -947,8 +948,19 @@ def build_lead_analyst_graph(
     )
     graph.add_node("respond", respond)
     graph.set_entry_point("receive")
-    graph.add_edge("aggregate", "respond")
     graph.add_edge("respond", END)
+
+    # Add meta-analysis nodes (used by both modes)
+    graph.add_node("call_peripheral_scan", call_peripheral_scan)
+    graph.add_node("call_ach_red_team", call_ach_red_team)
+    graph.add_node("final_synthesis", final_synthesis)
+
+    def should_run_meta_analysis(state: LeadAnalystState) -> str:
+        """Conditional edge: decide whether to run meta-analysis or go straight to respond."""
+        # Check if meta-analysis nodes exist (they always exist now)
+        # For now, always run meta-analysis (default mode as requested)
+        # Future: add logic based on question type, user preference, or state flags
+        return "call_peripheral_scan"
 
     if dynamic_discovery:
         effective_cp_url = control_plane_url or os.getenv("CONTROL_PLANE_URL", "")
@@ -957,41 +969,44 @@ def build_lead_analyst_graph(
                 "dynamic_discovery=True requires control_plane_url in YAML "
                 "or CONTROL_PLANE_URL environment variable"
             )
-        # Add nodes for sequential flow
+        # Dynamic mode: LLM selects specialists from control plane
         graph.add_node("discover_and_select", _make_discover_node(effective_cp_url, min_specialists))
         graph.add_node("call_specialist", call_specialist)
-        graph.add_node("call_peripheral_scan", call_peripheral_scan)
-        graph.add_node("call_ach_red_team", call_ach_red_team)
-        graph.add_node("final_synthesis", final_synthesis)
 
-        # Sequential flow:
-        # 1. receive → discover_and_select
+        # Flow: discover → specialists (parallel) → aggregate → [conditional: meta-analysis or respond]
         graph.add_edge("receive", "discover_and_select")
-
-        # 2. discover_and_select → call_specialist (parallel fan-out via route_to_specialists)
         graph.add_conditional_edges("discover_and_select", route_to_specialists, ["call_specialist"])
-
-        # 3. call_specialist → (wait for all) → call_peripheral_scan
         graph.add_conditional_edges(
             "call_specialist",
             check_all_specialists_done,
             {
                 "call_specialist": "call_specialist",  # Loop back if not done
-                "call_peripheral_scan": "call_peripheral_scan",  # All done, proceed
+                "aggregate": "aggregate",  # All done, proceed to aggregation
             }
         )
-
-        # 4. Sequential: peripheral_scan → aggregate → ach_red_team → final_synthesis → respond
-        graph.add_edge("call_peripheral_scan", "aggregate")
-        graph.add_edge("aggregate", "call_ach_red_team")
-        graph.add_edge("call_ach_red_team", "final_synthesis")
-        graph.add_edge("final_synthesis", "respond")
     else:
+        # Static mode: use YAML-defined sub_agents
         for sa in sub_agents:
             graph.add_node(sa.node_id, _make_sub_agent_node(sa))
             graph.add_edge("receive", sa.node_id)
             graph.add_edge(sa.node_id, "aggregate")
         if not sub_agents:
+            # No sub-agents: skip straight to aggregate with empty results
             graph.add_edge("receive", "aggregate")
+
+    # Conditional meta-analysis flow (default: always run)
+    graph.add_conditional_edges(
+        "aggregate",
+        should_run_meta_analysis,
+        {
+            "call_peripheral_scan": "call_peripheral_scan",
+            "respond": "respond",  # Future: direct path if meta-analysis is skipped
+        }
+    )
+
+    # Sequential meta-analysis pipeline: peripheral → ach → synthesis → respond
+    graph.add_edge("call_peripheral_scan", "call_ach_red_team")
+    graph.add_edge("call_ach_red_team", "final_synthesis")
+    graph.add_edge("final_synthesis", "respond")
 
     return graph.compile()
