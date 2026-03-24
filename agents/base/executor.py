@@ -125,7 +125,13 @@ class LangGraphA2AExecutor(AgentExecutor, CancellableMixin):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        task_id = context.task_id or str(uuid.uuid4())
+        # Prefer the control-plane-assigned task ID (passed via message metadata)
+        # so that NODE_OUTPUT events are correlated to the correct control-plane
+        # task record. Falls back to the SDK-assigned task_id, then a fresh UUID.
+        cp_task_id = None
+        if context.message and context.message.metadata:
+            cp_task_id = context.message.metadata.get("controlPlaneTaskId")
+        task_id = cp_task_id or context.task_id or str(uuid.uuid4())
         context_id = context.context_id or str(uuid.uuid4())
         self.register_task(task_id)
 

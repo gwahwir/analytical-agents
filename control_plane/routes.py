@@ -166,6 +166,7 @@ async def _run_task(
     try:
         gen = client.stream_message(
             text,
+            task_id=task_id,
             baselines=record.baselines,
             key_questions=record.key_questions,
         )
@@ -181,7 +182,15 @@ async def _run_task(
                         _, node_name, json_payload = parts
                         try:
                             json.loads(json_payload)  # validate
-                            record.node_outputs[node_name] = json_payload
+                            # Fan-out support: if multiple executions share the same node
+                            # name (e.g. call_specialist via Send()), store each as a
+                            # distinct key: call_specialist, call_specialist:1, call_specialist:2 …
+                            out_key = node_name
+                            idx = 1
+                            while out_key in record.node_outputs:
+                                out_key = f"{node_name}:{idx}"
+                                idx += 1
+                            record.node_outputs[out_key] = json_payload
                             record.running_node = ""   # node just completed
                             await _task_store.save(record)
                             await _broker.publish(task_id, record.to_dict())

@@ -109,14 +109,19 @@ class A2AClient:
         if key_questions:
             metadata["keyQuestions"] = key_questions
 
+        # Pass the control-plane task ID via metadata so the agent executor can use
+        # it for NODE_OUTPUT tracking. We do NOT set message["taskId"] because the
+        # A2A SDK treats that as "resume an existing agent-side task" and raises
+        # TaskNotFoundError if no matching task exists in the agent's internal store.
+        if task_id:
+            metadata["controlPlaneTaskId"] = task_id
+
         message: dict[str, Any] = {
             "kind": "message",
             "role": "user",
             "messageId": str(uuid.uuid4()),
             "parts": [{"kind": "text", "text": text}],
         }
-        if task_id:
-            message["taskId"] = task_id
         if context_id:
             message["contextId"] = context_id
         if metadata:
