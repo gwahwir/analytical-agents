@@ -12,7 +12,7 @@ import AgentPanel from "./components/AgentPanel";
 import TaskLauncher from "./components/TaskLauncher";
 import TaskBoard from "./components/TaskBoard";
 import TaskHistory from "./components/TaskHistory";
-import TaskDetailDrawer from "./components/TaskDetailDrawer";
+import TaskGraphModal from "./components/TaskGraphModal";
 import AgentDetailDrawer from "./components/AgentDetailDrawer";
 import AgentFlowDiagram from "./components/AgentFlowDiagram";
 import { fetchAgents, fetchGraph, fetchTasks, deleteTask, deleteAllTasks } from "./hooks/useApi";
@@ -210,8 +210,9 @@ function App() {
         </Box>
       </AppShell.Main>
 
-      <TaskDetailDrawer
+      <TaskGraphModal
         task={selectedTask}
+        graphData={graphData}
         onClose={() => setSelectedTask(null)}
         onCancelled={handleTaskCancelled}
       />
