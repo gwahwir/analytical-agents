@@ -8,7 +8,7 @@ Wraps JSON-RPC calls to agent A2A endpoints for:
 from __future__ import annotations
 
 import uuid
-from typing import Any, AsyncGenerator, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import httpx
 

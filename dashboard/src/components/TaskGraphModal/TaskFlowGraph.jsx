@@ -38,22 +38,12 @@ function getExecutionState({ bareId, selectedNodeId, runningNode, nodeOutputs, t
 }
 
 export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, onNodeSelect }) {
-  if (!agentData) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>
-          Graph topology unavailable — agent is no longer registered
-        </Text>
-      </div>
-    );
-  }
-
   const nodeOutputs = taskState?.node_outputs;
   const runningNode = taskState?.running_node || null;
   const taskFailed = taskState?.state === "failed";
 
   const { nodes: rawNodes, edges } = useMemo(
-    () => computeLayout({ agents: [agentData], cross_agent_edges: [] }),
+    () => agentData ? computeLayout({ agents: [agentData], cross_agent_edges: [] }) : { nodes: [], edges: [] },
     [agentData]
   );
 
@@ -63,6 +53,16 @@ export default function TaskFlowGraph({ agentData, taskState, selectedNodeId, on
     const executionState = getExecutionState({ bareId, selectedNodeId, runningNode, nodeOutputs, taskFailed });
     return { ...node, type: "executionNode", data: { ...node.data, executionState } };
   }), [rawNodes, selectedNodeId, runningNode, nodeOutputs, taskFailed]);
+
+  if (!agentData) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+        <Text size="sm" style={{ color: "var(--hud-text-dimmed)" }}>
+          Graph topology unavailable — agent is no longer registered
+        </Text>
+      </div>
+    );
+  }
 
   return (
     <ReactFlow
