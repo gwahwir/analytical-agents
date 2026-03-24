@@ -12,6 +12,7 @@ LangGraph ``StateGraph``.  The base class handles:
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from abc import abstractmethod
 from typing import Any
@@ -169,6 +170,10 @@ class LangGraphA2AExecutor(AgentExecutor, CancellableMixin):
                 update = event[node_name]
                 if update:
                     result.update(update)
+                await self._emit_status(
+                    event_queue, task_id, context_id, TaskState.working,
+                    f"NODE_OUTPUT::{node_name}::{json.dumps(update or {})}",
+                )
 
             # Build final output
             output_text = self.format_output(result)
