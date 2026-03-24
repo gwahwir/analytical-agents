@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useDisclosure } from "@mantine/hooks";
 import {
   AppShell,
   Group,
@@ -7,6 +8,7 @@ import {
   Tabs,
   Badge,
   Box,
+  Tooltip,
 } from "@mantine/core";
 import AgentPanel from "./components/AgentPanel";
 import TaskLauncher from "./components/TaskLauncher";
@@ -33,6 +35,7 @@ function UtcClock() {
 }
 
 function App() {
+  const [sidebarOpen, { toggle: toggleSidebar }] = useDisclosure(true);
   const [agents, setAgents] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [graphData, setGraphData] = useState(null);
@@ -102,7 +105,7 @@ function App() {
   return (
     <AppShell
       header={{ height: 60 }}
-      navbar={{ width: 600, breakpoint: "sm" }}
+      navbar={{ width: 600, breakpoint: "sm", collapsed: { desktop: !sidebarOpen } }}
       padding="md"
     >
       <AppShell.Header
@@ -112,24 +115,38 @@ function App() {
       >
         <Group h="100%" px="md" justify="space-between">
           <Group>
-            <Box
-              w={36}
-              h={36}
-              style={{
-                borderRadius: 0,
-                border: "1px solid var(--hud-cyan)",
-                background: "transparent",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "var(--hud-cyan)",
-                fontWeight: 700,
-                fontSize: 13,
-                letterSpacing: "1px",
-              }}
-            >
-              AMC
-            </Box>
+            <Tooltip label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"} position="right">
+              <Box
+                w={36}
+                h={36}
+                onClick={toggleSidebar}
+                style={{
+                  borderRadius: 0,
+                  border: "1px solid var(--hud-cyan)",
+                  background: "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--hud-cyan)",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  letterSpacing: "1px",
+                  cursor: "pointer",
+                  transition: "background 0.15s, box-shadow 0.15s",
+                  userSelect: "none",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(0,212,255,0.08)";
+                  e.currentTarget.style.boxShadow = "0 0 10px rgba(0,212,255,0.2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                {sidebarOpen ? "◀" : "▶"}
+              </Box>
+            </Tooltip>
             <Title
               order={4}
               style={{
