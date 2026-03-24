@@ -139,7 +139,7 @@ function App() {
                 fontSize: 14,
               }}
             >
-              [ AGENTS MISSION CONTROL ]
+              [ BEESTORM ]
             </Title>
           </Group>
           <Group gap="md">

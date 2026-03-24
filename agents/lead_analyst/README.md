@@ -17,16 +17,39 @@ lead_analyst/
 
 ## Graph
 
+The graph has two modes depending on whether `sub_agents` are defined in the YAML config.
+
+**Dynamic mode** (no `sub_agents` in YAML — discovers specialists at runtime via the control plane):
+
+```
+receive → discover_and_select → call_specialist (×N, parallel via Send)
+                                       ↓
+                                  aggregate
+                                       ↓
+                             call_peripheral_scan
+                                       ↓
+                              call_ach_red_team
+                                       ↓
+                               final_synthesis → respond
+```
+
+**Static mode** (`sub_agents` defined in YAML):
+
 ```
 receive → call_<sub_agent_1> ─┐
-        → call_<sub_agent_2> ─┤→ aggregate → respond
+        → call_<sub_agent_2> ─┤→ aggregate → call_peripheral_scan → call_ach_red_team → final_synthesis → respond
         → ...                 ─┤
         → call_<sub_agent_N> ─┘
 ```
 
 - **receive** — reads and validates input
-- **call_\<sub_agent\>** — one per sub-agent in the YAML config, all fan out in parallel
-- **aggregate** — LLM-powered meta-analysis that synthesizes sub-agent results
+- **discover_and_select** — queries control plane for available specialists, selects the most relevant ones via LLM, and sets `key_questions` for them
+- **call_specialist** — invoked once per selected specialist via LangGraph `Send()` (parallel fan-out); each branch carries `_spec_label` and `_spec_url` injected by the router; LangGraph automatically merges results via `operator.add` after all branches complete
+- **call_\<sub_agent\>** — (static mode only) one node per YAML-defined sub-agent, all fan out in parallel
+- **aggregate** — LLM-powered meta-analysis that synthesizes all specialist results into a structured report
+- **call_peripheral_scan** — calls a peripheral-scan specialist to surface non-obvious signals
+- **call_ach_red_team** — runs ACH (Analysis of Competing Hypotheses) / red-team critique
+- **final_synthesis** — integrates domain aggregation, peripheral findings, and ACH analysis into a final briefing
 - **respond** — formats the final output
 
 ## YAML Configuration
