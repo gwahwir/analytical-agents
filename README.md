@@ -328,13 +328,30 @@ The Lead Analyst demonstrates complex multi-agent orchestration:
                     │
                     ▼
          ┌───────────────────────────────────────────────┐
-         │         final_synthesis (LLM)                 │
-         │  Integrates red team challenges               │
+         │    call_baseline_comparison (L2)              │
+         │  Detects changes from baseline (if provided)  │
          │                                               │
-         │  Input: consensus + ACH challenges            │
+         │  Input: baselines + aggregated_consensus      │
+         │  Change Categories:                           │
+         │  • Confirmed: baseline points supported       │
+         │  • Challenged: baseline points contradicted   │
+         │  • Updated: baseline points refined           │
+         │  • Stable: what hasn't changed                │
+         │  • New Insights: beyond baseline scope        │
+         │                                               │
+         │  Output → state.baseline_comparison           │
+         └──────────┬────────────────────────────────────┘
+                    │
+                    ▼
+         ┌───────────────────────────────────────────────┐
+         │         final_synthesis (LLM)                 │
+         │  Integrates all meta-analysis components      │
+         │                                               │
+         │  Input: consensus + ACH + baseline changes    │
          │  Produces balanced assessment:                │
          │  • Executive Summary                          │
          │  • Primary Assessment (consensus view)        │
+         │  • Baseline Change Summary (if applicable)    │
          │  • Alternative Hypotheses Worth Monitoring    │
          │  • Key Uncertainties & Disconfirming Evidence │
          │  • Recommended Actions                        │
@@ -390,6 +407,12 @@ The Lead Analyst demonstrates complex multi-agent orchestration:
          └────────┬─────────┘
                   │
                   ▼
+         ┌──────────────────────┐
+         │ baseline_comparison  │ → baseline_comparison
+         │ (if baselines given) │    (change detection)
+         └────────┬─────────────┘
+                  │
+                  ▼
          ┌──────────────────┐
          │ final_synthesis  │ → output
          └────────┬─────────┘
@@ -414,10 +437,13 @@ The system uses a **3-tier specialist architecture**:
 - LLM selects 3-8 most relevant based on query
 - Called concurrently to generate diverse analytical perspectives
 
-**L2: Peripheral Scanner** (Always called sequentially BEFORE aggregation)
-- Identifies collective blind spots across all domain analyses
-- Detects weak signals, uncited intelligence, cross-domain connections
-- Runs BEFORE aggregation so findings can be integrated into consensus (not added post-hoc)
+**L2: Meta-Specialists** (Always called sequentially in meta-analysis pipeline)
+- **Peripheral Scanner** — Identifies collective blind spots across all domain analyses
+  - Detects weak signals, uncited intelligence, cross-domain connections
+  - Runs BEFORE aggregation so findings can be integrated into consensus (not added post-hoc)
+- **Baseline Comparison** — Detects changes from prior assessments (runs only if baselines provided)
+  - Compares aggregated consensus against baseline to identify confirmations, challenges, updates
+  - Runs AFTER ACH to have full analytical context
 - Tagged with `specialist_L2` to exclude from LLM selection
 
 **L3: ACH Red Team** (Always called sequentially AFTER aggregation)
@@ -427,13 +453,16 @@ The system uses a **3-tier specialist architecture**:
 - Tagged with `specialist_L3` to exclude from LLM selection
 
 ```
-Specialist Agent (:8006) hosts 16 geopolitical/intelligence specialists:
+Specialist Agent (:8006) hosts 17 geopolitical/intelligence specialists:
 
 ┌────────────────────────────────────────────────────────────┐
 │  META-SPECIALISTS (L2/L3) - Sequential Pipeline            │
 ├────────────────────────────────────────────────────────────┤
 │ • peripheral-scan (L2)         │  Blind spots & uncited    │
 │                                │  intelligence detection   │
+│ • baseline-comparison (L2)     │  Baseline change detection│
+│                                │  with ACH-informed        │
+│                                │  confidence calibration   │
 │ • ach-red-team (L3)            │  Analysis of Competing    │
 │                                │  Hypotheses & red teaming │
 └────────────────────────────────────────────────────────────┘
@@ -493,7 +522,8 @@ Specialist Agent (:8006) hosts 16 geopolitical/intelligence specialists:
    - **L2 Peripheral Scan** → runs BEFORE aggregation to catch blind spots early
    - **Aggregation** → synthesizes domain analyses + peripheral findings
    - **L3 ACH Red Team** → challenges the aggregated consensus
-   - **Final Synthesis** → integrates consensus + challenges
+   - **L2 Baseline Comparison** → detects changes from prior assessments (if baselines provided)
+   - **Final Synthesis** → integrates consensus + challenges + baseline changes
 
 Each domain specialist returns structured JSON with key findings,
 evidence, predictions, limitations, and confidence levels.
@@ -911,12 +941,21 @@ curl http://localhost:8000/agents
       - Identifies disconfirming evidence
       - Output → state.ach_analysis
 
-   f) final_synthesis:
-      - LLM integrates consensus + ACH challenges
+   f) call_baseline_comparison (L2):
+      - A2A call to baseline-comparison specialist
+      - Input: baselines + aggregated_consensus + ach_analysis
+      - Uses ACH insights to calibrate confidence in baseline changes
+      - Detects: high-confidence changes vs. uncertain changes (flagged by ACH)
+      - Runs only if baselines were provided in input
+      - Output → state.baseline_comparison (confidence-calibrated)
+
+   g) final_synthesis:
+      - LLM integrates consensus + ACH + baseline changes
       - Produces balanced assessment with alternatives
+      - Includes baseline change summary if applicable
       - Output → state.output (final JSON)
 
-   g) respond:
+   h) respond:
       - Returns final output to control plane
 
 4. CONTROL PLANE updates task

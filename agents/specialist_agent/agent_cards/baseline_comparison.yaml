@@ -1,0 +1,49 @@
+name: Baseline Comparison Analyst
+description: Compares current analysis with baseline assessments to detect changes, confirmations, and updates
+version: "0.1.0"
+
+system_prompt_file: baseline_comparison.md
+
+output_format: |
+  Provide your analysis as JSON with this structure:
+  {
+    "framework_name": "Baseline Change Detection",
+    "summary": "2-3 sentence executive summary of key changes with confidence qualifiers",
+    "baseline_changes": {
+      "confirmed": ["Baseline points supported by new analysis with high confidence"],
+      "confirmed_tentative": ["Baseline points supported BUT ACH raises doubts about consensus"],
+      "challenged": ["Baseline points contradicted by new evidence with high confidence"],
+      "challenged_uncertain": ["Baseline points contradicted BUT ACH questions consensus or defends baseline"],
+      "updated": ["Baseline points refined or modified (note confidence based on ACH)"],
+      "stable": ["What hasn't changed - key continuities"],
+      "new_insights": ["Analysis beyond original baseline scope"],
+      "ach_meta_insights": ["Cases where ACH suggests both baseline AND consensus miss fundamental issues"]
+    },
+    "change_magnitude": "Major/Moderate/Minor - overall degree of baseline shift",
+    "key_deltas": ["3-5 most significant changes from baseline with confidence indicators"],
+    "confidence_assessment": {
+      "overall": "High/Medium/Low",
+      "ach_impact": "How ACH challenges affect confidence in baseline changes",
+      "high_confidence_changes": ["Changes well-supported by both consensus and ACH"],
+      "uncertain_changes": ["Changes where ACH creates doubt"]
+    }
+  }
+
+  Be specific about what changed and why. Use ACH insights to qualify confidence levels.
+  Distinguish high-confidence changes from tentative ones based on ACH challenges.
+
+skills:
+  - id: baseline-comparison-analysis
+    name: Baseline Comparison Analysis
+    description: Compares new analysis against baseline assessments to detect changes, confirmations, and updates
+    tags: [specialist_L2, analysis, baseline, change-detection, delta]
+
+input_fields:
+  - name: text
+    label: Analysis to Compare Against Baseline
+    type: textarea
+    required: true
+    placeholder: Paste the new analysis output...
+
+temperature: 0.3
+max_completion_tokens: 4096

@@ -153,6 +153,7 @@ class LeadAnalystState(TypedDict):
     peripheral_findings: str  # Output from peripheral_scan specialist
     aggregated_consensus: str  # Initial aggregation (domain + peripheral, before ACH)
     ach_analysis: str  # Output from ach_red_team specialist
+    baseline_comparison: str  # Output from baseline_comparison specialist
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +649,83 @@ Be adversarial. Your job is to find flaws in both the consensus AND the framing 
     return {"ach_analysis": ach_output}
 
 
+async def call_baseline_comparison(
+    state: LeadAnalystState, config: RunnableConfig
+) -> dict[str, Any]:
+    """Compare aggregated consensus against baselines to detect changes.
+
+    Only runs if baselines were provided. Compares aggregated_consensus
+    with baselines to identify confirmations, challenges, updates.
+    """
+    executor = config["configurable"]["executor"]
+    task_id = config["configurable"]["task_id"]
+    context_id = config["configurable"].get("context_id")
+    executor.check_cancelled(task_id)
+
+    baselines = state.get("baselines", "").strip()
+    if not baselines:
+        # No baselines provided - skip comparison
+        return {"baseline_comparison": ""}
+
+    # Build comparison input with formatted sections including ACH context
+    comparison_input = f"""## BASELINE ASSESSMENTS:
+
+{baselines}
+
+---
+## NEW ANALYSIS (Aggregated Consensus):
+
+{state["aggregated_consensus"]}
+
+---
+## ACH RED TEAM CHALLENGES (for confidence calibration):
+
+{state.get("ach_analysis", "ACH analysis not available")}
+
+**Context:** The ACH Red Team has challenged the aggregated consensus by identifying alternative hypotheses, disconfirming evidence, and blind spots in the consensus view.
+
+**Use ACH Insights to Calibrate Confidence:**
+
+When comparing baseline against new analysis, assess confidence levels based on ACH challenges:
+
+1. **High Confidence Changes:**
+   - Confirmed: Consensus supports baseline AND ACH doesn't challenge this point
+   - Challenged: Consensus contradicts baseline AND ACH agrees baseline was wrong
+   - Updated: Consensus refines baseline AND ACH supports the refinement
+
+2. **Uncertain/Tentative Changes:**
+   - Confirmed (Tentative): Consensus supports baseline BUT ACH raises doubts about consensus
+   - Challenged (Uncertain): Consensus contradicts baseline BUT ACH defends baseline assumptions
+   - Updated (Uncertain): Consensus refines baseline BUT ACH questions the refinement
+
+3. **Meta-Insights:**
+   - If ACH suggests BOTH baseline and consensus miss something fundamental, note this
+   - If ACH's alternative hypotheses invalidate the baseline-consensus comparison framing, flag it
+
+---
+## YOUR TASK:
+
+Compare the new analysis against the baseline assessments. Use ACH insights to calibrate confidence in your change assessment. Identify what has been confirmed, challenged, updated, or what remains stable, with confidence qualifications based on ACH challenges.
+
+Provide structured JSON output as specified, with confidence indicators where ACH creates uncertainty.
+"""
+
+    specialist_agent_url = os.getenv("SPECIALIST_AGENT_URL", "http://specialist-agent:8006")
+    baseline_comparison_url = f"{specialist_agent_url}/baseline-comparison"
+
+    try:
+        comparison_output = await _call_sub_agent(
+            baseline_comparison_url,
+            comparison_input,
+            context_id=context_id,
+        )
+    except Exception as exc:
+        comparison_output = f"[Error calling baseline_comparison: {exc}]"
+        logger.warning("Baseline comparison failed in task %s: %s", task_id, exc)
+
+    return {"baseline_comparison": comparison_output}
+
+
 async def final_synthesis(
     state: LeadAnalystState, config: RunnableConfig
 ) -> dict[str, Any]:
@@ -660,20 +738,17 @@ async def final_synthesis(
     task_id = config["configurable"]["task_id"]
     executor.check_cancelled(task_id)
 
-    # If no OpenAI key, just concatenate consensus + ACH
+    # If no OpenAI key, just concatenate consensus + ACH + baseline comparison
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        combined = f"""
-{state["aggregated_consensus"]}
+        parts = [state["aggregated_consensus"]]
+        if state.get("ach_analysis"):
+            parts.append(f"\n\n---\n\n## APPENDIX A: ACH RED TEAM CHALLENGE (Raw Output)\n\n{state['ach_analysis']}")
+        if state.get("baseline_comparison") and not state["baseline_comparison"].startswith("[Error"):
+            parts.append(f"\n\n---\n\n## APPENDIX B: BASELINE CHANGE ANALYSIS (Raw Output)\n\n{state['baseline_comparison']}")
+        return {"output": "".join(parts)}
 
----
-## ACH RED TEAM CHALLENGE:
-
-{state["ach_analysis"]}
-"""
-        return {"output": combined}
-
-    # Use LLM to integrate ACH challenges into balanced assessment
+    # Use LLM to integrate ACH challenges + baseline comparison into balanced assessment
     synthesis_prompt = f"""
 You are producing a final intelligence assessment that integrates red team challenges.
 
@@ -682,19 +757,32 @@ You are producing a final intelligence assessment that integrates red team chall
 
 ## ACH RED TEAM CHALLENGE:
 {state["ach_analysis"]}
+"""
 
+    # Add baseline comparison section if available
+    if state.get("baseline_comparison") and not state["baseline_comparison"].startswith("[Error"):
+        synthesis_prompt += f"""
+## BASELINE CHANGE ANALYSIS:
+{state["baseline_comparison"]}
+
+**Integration Note:** The baseline comparison identifies how this analysis differs from prior assessments. Incorporate key changes (confirmed/challenged/updated) into your final synthesis. Highlight where confidence has increased or decreased relative to prior assessment.
+"""
+
+    synthesis_prompt += """
 ## YOUR TASK:
 Produce a final assessment that:
 1. **Preserves the consensus view** where well-supported
 2. **Integrates ACH alternative hypotheses** as "monitoring-worthy" where plausible
-3. **Flags disconfirming evidence** that warrants caution
-4. **Provides decision-makers** with both the consensus AND credible alternatives
+3. **Highlights baseline changes** (confirmations, challenges, updates) if provided
+4. **Flags disconfirming evidence** that warrants caution
+5. **Provides decision-makers** with both the consensus AND credible alternatives
 
 **Tone:** Balanced, acknowledges uncertainty, action-oriented.
 
 **Structure:**
-- Executive Summary (2-3 sentences)
+- Executive Summary (2-3 sentences, include baseline change summary if applicable)
 - Primary Assessment (consensus view)
+- Baseline Change Summary (if applicable: what changed from prior assessment)
 - Alternative Hypotheses Worth Monitoring (from ACH)
 - Key Uncertainties & Disconfirming Evidence
 - Recommended Actions
@@ -720,12 +808,44 @@ Respond in JSON format matching the standard aggregation output structure.
             temperature=0.3,
             max_completion_tokens=4096,
         )
-        return {"output": resp.choices[0].message.content or ""}
+        synthesis_output = resp.choices[0].message.content or ""
+
+        # Append raw ACH and baseline comparison outputs for reference
+        appendix_parts = []
+
+        if state.get("ach_analysis"):
+            appendix_parts.append(f"""
+---
+
+## APPENDIX A: ACH Red Team Analysis (Raw Output)
+
+{state["ach_analysis"]}
+""")
+
+        if state.get("baseline_comparison") and not state["baseline_comparison"].startswith("[Error"):
+            appendix_parts.append(f"""
+---
+
+## APPENDIX B: Baseline Comparison Analysis (Raw Output)
+
+{state["baseline_comparison"]}
+""")
+
+        # Combine synthesis + appendices
+        full_output = synthesis_output
+        if appendix_parts:
+            full_output += "\n" + "".join(appendix_parts)
+
+        return {"output": full_output}
     except Exception as exc:
         logger.error("Final synthesis LLM failed task_id=%s: %s", task_id, exc)
-        # Fallback: concatenate
-        combined = f"{state['aggregated_consensus']}\n\n---\n\n## ACH CHALLENGES:\n{state['ach_analysis']}"
-        return {"output": combined}
+        # Fallback: concatenate all components
+        parts = [state['aggregated_consensus']]
+        if state.get("ach_analysis"):
+            parts.append(f"\n\n---\n\n## ACH CHALLENGES:\n{state['ach_analysis']}")
+        if state.get("baseline_comparison") and not state["baseline_comparison"].startswith("[Error"):
+            parts.append(f"\n\n---\n\n## BASELINE COMPARISON:\n{state['baseline_comparison']}")
+        return {"output": "".join(parts)}
 
 
 # ---------------------------------------------------------------------------
@@ -942,6 +1062,7 @@ def build_lead_analyst_graph(
     # Add meta-analysis nodes (used by both modes)
     graph.add_node("call_peripheral_scan", call_peripheral_scan)
     graph.add_node("call_ach_red_team", call_ach_red_team)
+    graph.add_node("call_baseline_comparison", call_baseline_comparison)
     graph.add_node("final_synthesis", final_synthesis)
 
     def should_run_ach_analysis(state: LeadAnalystState) -> str:
@@ -990,8 +1111,9 @@ def build_lead_analyst_graph(
         }
     )
 
-    # Sequential meta-analysis pipeline: ach → synthesis → respond
-    graph.add_edge("call_ach_red_team", "final_synthesis")
+    # Sequential meta-analysis pipeline: ach → baseline_comparison → synthesis → respond
+    graph.add_edge("call_ach_red_team", "call_baseline_comparison")
+    graph.add_edge("call_baseline_comparison", "final_synthesis")
     graph.add_edge("final_synthesis", "respond")
 
     return graph.compile()

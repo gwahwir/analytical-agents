@@ -21,7 +21,7 @@ lead_analyst/
 
 ```
 receive → call_<sub_agent_1> ─┐
-        → call_<sub_agent_2> ─┤→ call_peripheral_scan → aggregate → call_ach_red_team → final_synthesis → respond
+        → call_<sub_agent_2> ─┤→ call_peripheral_scan → aggregate → call_ach_red_team → call_baseline_comparison → final_synthesis → respond
         → ...                 ─┤
         → call_<sub_agent_N> ─┘
 ```
@@ -29,7 +29,7 @@ receive → call_<sub_agent_1> ─┐
 ### Dynamic Discovery Mode (LLM-selected specialists)
 
 ```
-receive → discover_and_select → call_specialist (parallel) → call_peripheral_scan → aggregate → call_ach_red_team → final_synthesis → respond
+receive → discover_and_select → call_specialist (parallel) → call_peripheral_scan → aggregate → call_ach_red_team → call_baseline_comparison → final_synthesis → respond
                                        ↑___________________|
                                     (barrier: wait for all)
 ```
@@ -46,7 +46,8 @@ receive → discover_and_select → call_specialist (parallel) → call_peripher
 - **call_peripheral_scan** — identifies weak signals, blind spots, and uncited intelligence that domain specialists missed (runs BEFORE aggregation to catch collective blind spots early)
 - **aggregate** — LLM-powered meta-analysis that synthesizes sub-agent results + peripheral findings into consensus
 - **call_ach_red_team** — generates alternative hypotheses and challenges the aggregated consensus using Analysis of Competing Hypotheses (ACH) methodology
-- **final_synthesis** — integrates consensus + peripheral findings + ACH challenges into a balanced assessment
+- **call_baseline_comparison** — compares aggregated consensus against baseline assessments to detect confirmations, challenges, updates, and stable elements; uses ACH insights for confidence calibration (runs if baselines provided)
+- **final_synthesis** — integrates consensus + peripheral findings + ACH challenges + baseline changes into a balanced assessment
 - **respond** — formats the final output
 
 ## YAML Configuration
@@ -178,7 +179,8 @@ When `OPENAI_API_KEY` is set, the meta-analysis pipeline produces a comprehensiv
 2. **Peripheral Scan** — Identifies weak signals and blind spots missed by domain specialists
 3. **Aggregation** — Synthesizes domain analyses + peripheral findings into consensus
 4. **ACH Red Team** — Generates alternative hypotheses and challenges consensus
-5. **Final Synthesis** — Integrates consensus + peripheral + ACH into balanced assessment
+5. **Baseline Comparison** — Detects changes from prior assessments (if baselines provided)
+6. **Final Synthesis** — Integrates consensus + peripheral + ACH + baseline changes into balanced assessment
 
 Without `OPENAI_API_KEY`, falls back to simple concatenation of sub-agent outputs at each stage.
 
@@ -194,7 +196,26 @@ Without `OPENAI_API_KEY`, falls back to simple concatenation of sub-agent output
 - **Methodology**: Analysis of Competing Hypotheses (ACH)
 - **Output**: Alternative hypotheses (H2, H3, H4), disconfirming evidence, pre-mortem analysis
 
+### Baseline Comparison
+- **Purpose**: Detect changes from prior assessments with confidence calibration (runs only if baselines provided)
+- **Methodology**: Delta analysis comparing baseline with aggregated consensus, using ACH insights to calibrate confidence
+- **Input**: Baselines + aggregated consensus + ACH red team analysis
+- **Output**: Structured JSON with confidence-calibrated changes (high-confidence vs. uncertain)
+- **Change Categories**:
+  - **Confirmed** (High Confidence): Baseline points supported by consensus AND not challenged by ACH
+  - **Confirmed Tentative**: Baseline points supported BUT ACH raises doubts
+  - **Challenged** (High Confidence): Baseline points contradicted by consensus AND ACH agrees
+  - **Challenged Uncertain**: Baseline points contradicted BUT ACH questions consensus or defends baseline
+  - **Updated**: Baseline points refined (confidence varies based on ACH support)
+  - **Stable**: What hasn't changed (key continuities)
+  - **New Insights**: Analysis beyond original baseline scope
+  - **ACH Meta-Insights**: Cases where ACH suggests baseline-consensus framing is incomplete
+
 ### Final Synthesis
 - **Purpose**: Produce balanced assessment for decision-makers
-- **Integration**: Preserves consensus where well-supported, flags alternatives worth monitoring, highlights uncertainties
+- **Integration**: Preserves consensus where well-supported, flags alternatives worth monitoring, highlights uncertainties, incorporates baseline changes
+- **Output Structure**:
+  - Main synthesis (integrated narrative)
+  - Appendix A: Raw ACH red team analysis (for reference)
+  - Appendix B: Raw baseline comparison (for reference)
 - **Tone**: Balanced, acknowledges uncertainty, action-oriented
