@@ -344,7 +344,7 @@ async def _select_specialists_with_llm(
     if not api_key:
         raise RuntimeError("No OPENAI_API_KEY — cannot use LLM selection")
 
-    from openai import AsyncOpenAI
+    from langfuse.openai import AsyncOpenAI
 
     openai_kwargs: dict[str, Any] = {"api_key": api_key}
     base_url = os.getenv("OPENAI_BASE_URL")
@@ -372,7 +372,7 @@ async def _select_specialists_with_llm(
 
     system_prompt += (
         f"Available specialists:\n{candidate_lines}\n\n"
-        f"Select at least {min_specialists} specialists most relevant and complementary for "
+        f"Select at least {min_specialists} and at most {len(candidates)} specialists most relevant and complementary for "
         f"this task. For each selected specialist, provide a concise reason (1-2 sentences) "
         f"explaining why they are suited to this specific task.\n\n"
         f"Return ONLY a JSON array of objects with 'name' and 'reasoning' fields, e.g. "
@@ -389,6 +389,7 @@ async def _select_specialists_with_llm(
             messages=messages,
             temperature=0.0,
             max_completion_tokens=1024,
+            name="select_specialist"
         )
         raw = (resp.choices[0].message.content or "").strip()
 
@@ -790,7 +791,7 @@ Produce a final assessment that:
 Use markdown formatting with clear section headers.
 """
 
-    from openai import AsyncOpenAI
+    from langfuse.openai import AsyncOpenAI
     openai_kwargs: dict[str, Any] = {"api_key": api_key}
     base_url = os.getenv("OPENAI_BASE_URL")
     if base_url:
@@ -807,6 +808,7 @@ Use markdown formatting with clear section headers.
             ],
             temperature=0.3,
             max_completion_tokens=4096,
+            name="final_synthesis"
         )
         synthesis_output = resp.choices[0].message.content or ""
 
@@ -994,7 +996,7 @@ def _make_aggregate_node(
             peripheral_findings=state.get("peripheral_findings", "")
         )
 
-        from openai import AsyncOpenAI
+        from langfuse.openai import AsyncOpenAI
 
         openai_kwargs: dict[str, Any] = {"api_key": api_key}
         base_url = os.getenv("OPENAI_BASE_URL")
@@ -1012,6 +1014,7 @@ def _make_aggregate_node(
                 ],
                 temperature=temperature,
                 max_completion_tokens=max_completion_tokens,
+                name="aggregate"
             )
             return {"aggregated_consensus": resp.choices[0].message.content or ""}
         except openai.APIError as e:
