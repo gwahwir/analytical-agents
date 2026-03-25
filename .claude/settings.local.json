@@ -39,7 +39,8 @@
       "Bash(tee /tmp/pytest_output.txt)",
       "Read(//tmp/**)",
       "Bash(grep:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Read(//c//**)"
     ]
   }
 }

@@ -44,7 +44,7 @@ def build_specialist_graph(
         task_id = config["configurable"]["task_id"]
         executor.check_cancelled(task_id)
 
-        from openai import AsyncOpenAI
+        from langfuse.openai import AsyncOpenAI
 
         openai_kwargs: dict[str, Any] = {}
         base_url = os.getenv("OPENAI_BASE_URL")
@@ -79,6 +79,7 @@ def build_specialist_graph(
                 ],
                 temperature=temperature,
                 max_completion_tokens=max_completion_tokens,
+                name=name
             )
             return {"response": resp.choices[0].message.content or ""}
         except openai.RateLimitError as e:
