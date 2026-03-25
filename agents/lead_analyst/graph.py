@@ -787,7 +787,7 @@ Produce a final assessment that:
 - Key Uncertainties & Disconfirming Evidence
 - Recommended Actions
 
-Respond in JSON format matching the standard aggregation output structure.
+Use markdown formatting with clear section headers.
 """
 
     from openai import AsyncOpenAI
