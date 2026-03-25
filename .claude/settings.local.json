@@ -40,7 +40,8 @@
       "Read(//tmp/**)",
       "Bash(grep:*)",
       "Bash(docker compose:*)",
-      "Read(//c//**)"
+      "Read(//c//**)",
+      "Skill(commit-commands:commit)"
     ]
   }
 }
