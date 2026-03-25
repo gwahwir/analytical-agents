@@ -107,3 +107,57 @@ body::after {
   background: rgba(0, 212, 255, 0.3);
   color: #fff;
 }
+
+/* Markdown output rendering */
+.markdown-output p { margin: 0 0 0.6em; }
+.markdown-output p:last-child { margin-bottom: 0; }
+.markdown-output h1, .markdown-output h2, .markdown-output h3,
+.markdown-output h4, .markdown-output h5, .markdown-output h6 {
+  color: var(--hud-cyan);
+  font-weight: 600;
+  margin: 0.8em 0 0.3em;
+  letter-spacing: 0.5px;
+}
+.markdown-output h1 { font-size: 1.1em; }
+.markdown-output h2 { font-size: 1em; }
+.markdown-output h3, .markdown-output h4 { font-size: 0.9em; }
+.markdown-output ul, .markdown-output ol {
+  margin: 0.3em 0 0.6em;
+  padding-left: 1.4em;
+}
+.markdown-output li { margin-bottom: 0.2em; }
+.markdown-output strong { color: var(--hud-text-primary); font-weight: 600; }
+.markdown-output em { color: rgba(255,255,255,0.7); }
+.markdown-output code {
+  background: var(--hud-bg-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--hud-green);
+}
+.markdown-output pre {
+  background: var(--hud-bg-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: 4px;
+  padding: 0.6em 0.8em;
+  overflow-x: auto;
+  margin: 0.4em 0;
+}
+.markdown-output pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.markdown-output hr {
+  border: none;
+  border-top: 1px solid var(--hud-border);
+  margin: 0.6em 0;
+}
+.markdown-output blockquote {
+  border-left: 2px solid rgba(0,212,255,0.3);
+  margin: 0.4em 0;
+  padding-left: 0.8em;
+  color: rgba(255,255,255,0.6);
+}

@@ -1,6 +1,8 @@
 // dashboard/src/components/TaskGraphModal/NodeOutputPanel.jsx
 import { useState } from "react";
 import { Tabs, Text, Code, Badge, Group, Stack } from "@mantine/core";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 
 // Syntax-highlighted JSON tree renderer
 function JsonNode({ value, depth = 0 }) {
@@ -102,7 +104,11 @@ function renderValue(value) {
         return <JsonTree value={inner} />;
       } catch {}
     }
-    return <Text size="sm" style={{ color: "var(--hud-text-primary)", whiteSpace: "pre-wrap" }}>{value}</Text>;
+    return (
+      <div style={{ color: "var(--hud-text-primary)", fontSize: 13, lineHeight: 1.7 }} className="markdown-output">
+        <ReactMarkdown remarkPlugins={[remarkBreaks]}>{value}</ReactMarkdown>
+      </div>
+    );
   }
   if (typeof value === "number" || typeof value === "boolean") {
     return (
