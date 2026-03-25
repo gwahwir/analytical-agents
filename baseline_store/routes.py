@@ -34,6 +34,15 @@ class VersionCreate(BaseModel):
     citations: list[Citation] = []
 
 
+class DeltaCreate(BaseModel):
+    from_version: int | None = None
+    to_version: int
+    article_metadata: dict[str, Any] = {}
+    delta_summary: str
+    claims_added: list[str] = []
+    claims_superseded: list[str] = []
+
+
 # ── Topic endpoints ──────────────────────────────────────────────────────────
 
 @router.post("/topics", status_code=201)
@@ -110,3 +119,37 @@ async def create_version(topic_path: str, body: VersionCreate):
             raise HTTPException(status_code=409, detail="Version conflict — retry with a fresh version number")
 
         return dict(row)
+
+
+# ── Delta endpoints ──────────────────────────────────────────────────────────
+
+@router.post("/baselines/{topic_path}/deltas", status_code=201)
+async def create_delta(topic_path: str, body: DeltaCreate):
+    pool = await get_pgvector_pool()
+    async with pool.acquire() as conn:
+        # Validate to_version exists
+        row = await conn.fetchrow(
+            """
+            SELECT version_number FROM baseline_versions
+            WHERE topic_path = $1::ltree AND version_number = $2
+            """,
+            topic_path, body.to_version,
+        )
+        if row is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"to_version {body.to_version} does not exist for topic: {topic_path} — write the version before the delta",
+            )
+
+        result = await conn.fetchrow(
+            """
+            INSERT INTO baseline_deltas
+                (topic_path, from_version, to_version, article_metadata, delta_summary, claims_added, claims_superseded)
+            VALUES ($1::ltree, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb)
+            RETURNING id::text, created_at::text
+            """,
+            topic_path, body.from_version, body.to_version,
+            json.dumps(body.article_metadata), body.delta_summary,
+            json.dumps(body.claims_added), json.dumps(body.claims_superseded),
+        )
+    return dict(result)

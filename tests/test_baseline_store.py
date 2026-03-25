@@ -162,3 +162,57 @@ async def test_post_versions_conflict_returns_409(client):
         )
 
     assert resp.status_code == 409
+
+
+# ── POST /baselines/{topic_path}/deltas ──────────────────────────────────────
+
+async def test_post_deltas_happy_path(client):
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(side_effect=[
+        {"version_number": 8},   # to_version exists
+        {                         # INSERT result
+            "id": "dddddddd-0000-0000-0000-000000000001",
+            "created_at": "2026-03-25T09:00:01+00:00",
+        },
+    ])
+    pool = make_pool(conn)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)):
+        resp = await client.post(
+            "/baselines/us_iran_conflict/deltas",
+            json={
+                "from_version": 7,
+                "to_version": 8,
+                "article_metadata": {"article_id": "art1", "title": "Iran Update", "url": "https://example.com", "source": "AP", "published_at": "2026-03-25T00:00:00Z"},
+                "delta_summary": "Iran crossed 60% enrichment threshold.",
+                "claims_added": ["Iran crossed 60% enrichment"],
+                "claims_superseded": ["Iran below 60% enrichment"],
+            }
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "id" in body
+    assert "created_at" in body
+
+
+async def test_post_deltas_to_version_not_found(client):
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=None)   # to_version does not exist
+    pool = make_pool(conn)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)):
+        resp = await client.post(
+            "/baselines/us_iran_conflict/deltas",
+            json={
+                "from_version": 7,
+                "to_version": 99,
+                "article_metadata": {},
+                "delta_summary": "test",
+                "claims_added": [],
+                "claims_superseded": [],
+            }
+        )
+
+    assert resp.status_code == 422
+    assert "to_version" in resp.json()["detail"]
