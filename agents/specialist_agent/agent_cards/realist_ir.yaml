@@ -1,5 +1,6 @@
 name: Realist IR Analyst
 description: Applies realist international relations theory to analyze great power politics, security dilemmas, and balance of power
+category: theoretical_framework
 version: "0.1.0"
 
 system_prompt_file: realist_ir.md

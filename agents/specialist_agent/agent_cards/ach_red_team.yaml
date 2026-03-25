@@ -1,5 +1,6 @@
 name: ACH Red Team Analyst
 description: Challenges consensus analysis, generates alternative hypotheses, and applies Analysis of Competing Hypotheses
+category: meta_tool
 version: "0.1.0"
 
 system_prompt_file: ach_red_team.md

@@ -1,5 +1,6 @@
 name: Copenhagen Securitization Analyst
 description: Applies the Copenhagen School's securitization framework to analyze security discourse and speech acts
+category: theoretical_framework
 version: "0.1.0"
 
 system_prompt_file: copenhagen_securitization.md

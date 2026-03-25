@@ -1,5 +1,6 @@
 name: Behavioral Economics Analyst
 description: Applies behavioral economics frameworks including cognitive biases, Prospect Theory, and System 1/2 thinking
+category: theoretical_framework
 version: "0.1.0"
 
 system_prompt_file: behavioral_economics.md

@@ -1,5 +1,6 @@
 name: Technology & Emerging Threats Analyst
 description: Analyzes cyber, AI, space, and disinformation threats through technology security frameworks
+category: domain_specialist
 version: "0.1.0"
 
 system_prompt_file: technology_emerging_threats.md

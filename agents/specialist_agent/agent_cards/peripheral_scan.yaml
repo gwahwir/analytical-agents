@@ -1,5 +1,6 @@
 name: Peripheral Scanner Analyst
 description: Detects blind spots, uncited intelligence, and overlooked signals at the periphery of analysis
+category: meta_tool
 version: "0.1.0"
 
 system_prompt_file: peripheral_scan.md

@@ -1,5 +1,6 @@
 name: Military Strategy & Deterrence Analyst
 description: Applies Clausewitzian analysis and deterrence theory to assess escalation dynamics and military strategy
+category: domain_specialist
 version: "0.1.0"
 
 system_prompt_file: military_strategy_deterrence.md

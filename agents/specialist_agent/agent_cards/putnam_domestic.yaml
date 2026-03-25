@@ -1,9 +1,9 @@
-name: ASEAN Security Analyst
-description: Analyzes Southeast Asian security dynamics including maritime geography, hedging strategies, and regional order
-category: domain_specialist
+name: Putnam Domestic Politics Analyst
+description: Applies Robert Putnam's two-level games framework to analyze how domestic constraints shape international negotiations and foreign policy choices
+category: theoretical_framework
 version: "0.1.0"
 
-system_prompt_file: asean_security.md
+system_prompt_file: putnam_domestic.md
 
 output_format: |
   Provide your analysis as JSON with this structure:
@@ -19,10 +19,10 @@ output_format: |
   Apply your theoretical framework rigorously. Be specific and evidence-based.
 
 skills:
-  - id: asean-security-analysis
-    name: ASEAN Security Analysis
-    description: Analyzes Southeast Asian regional dynamics, ASEAN centrality, and maritime security
-    tags: [specialist, analysis, asean, southeast-asia, maritime]
+  - id: putnam-domestic-analysis
+    name: Two-Level Games Analysis
+    description: Analyzes scenarios through domestic political constraints, win-sets, veto players, and domestic audience costs
+    tags: [specialist, analysis, domestic-politics, two-level-games, win-sets, veto-players]
 
 input_fields:
   - name: text

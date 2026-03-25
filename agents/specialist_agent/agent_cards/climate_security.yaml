@@ -1,5 +1,6 @@
 name: Climate Security Analyst
 description: Applies climate security, threat multiplication, water-food-energy nexus, and climate migration frameworks to analyze environment-security scenarios
+category: domain_specialist
 version: "0.1.0"
 
 system_prompt_file: climate_security.md
