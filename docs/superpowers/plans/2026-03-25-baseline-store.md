@@ -755,11 +755,13 @@ git commit -m "feat(baseline-store): add POST /baselines/{topic_path}/deltas"
 
 ## Task 5: Read endpoints — `/current` and `/history`
 
+> **STATUS:** Implementation complete. Committed as `4aa27bf`. Spec review ✅ passed. **Resumption point: code quality review pending.**
+
 **Files:**
 - Modify: `baseline_store/routes.py`
 - Modify: `tests/test_baseline_store.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Append to `tests/test_baseline_store.py`:
 
@@ -873,14 +875,14 @@ async def test_get_history_registered_no_versions(client):
     assert body["deltas"] == []
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 pytest tests/test_baseline_store.py::test_get_current_happy_path -v
 ```
 Expected: 404 — routes don't exist yet.
 
-- [ ] **Step 3: Add `/current` and `/history` routes to `routes.py`**
+- [x] **Step 3: Add `/current` and `/history` routes to `routes.py`**
 
 ```python
 @router.get("/baselines/{topic_path}/current")
@@ -963,14 +965,14 @@ async def get_history(topic_path: str):
     }
 ```
 
-- [ ] **Step 4: Run tests to confirm they pass**
+- [x] **Step 4: Run tests to confirm they pass**
 
 ```bash
 pytest tests/test_baseline_store.py -v
 ```
 Expected: all current + history tests pass; no regressions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add baseline_store/routes.py tests/test_baseline_store.py
