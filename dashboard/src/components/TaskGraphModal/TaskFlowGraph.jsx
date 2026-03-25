@@ -1,6 +1,6 @@
 // dashboard/src/components/TaskGraphModal/TaskFlowGraph.jsx
 import { useMemo } from "react";
-import { ReactFlow, Background, Controls } from "@xyflow/react";
+import { ReactFlow, Background, Controls, Handle, Position } from "@xyflow/react";
 import { Text } from "@mantine/core";
 import { computeLayout } from "../graph/layout";
 
@@ -21,6 +21,7 @@ const NODE_STRIDE = 56; // px between stacked fan-out nodes
 function ExecutionNode({ data }) {
   const style = STATE_STYLES[data.executionState] || STATE_STYLES.pending;
   const dotColor = DOT_COLORS[data.executionState];
+  const handleStyle = { background: "var(--hud-cyan)", width: 6, height: 6 };
   return (
     <div style={{
       ...style,
@@ -38,8 +39,10 @@ function ExecutionNode({ data }) {
       // Fan-out nodes get a subtle left accent to distinguish them from base
       ...(data.isFanOut && { borderLeft: "3px solid rgba(0,212,255,0.35)" }),
     }}>
+      <Handle type="target" position={Position.Left} style={handleStyle} />
       {dotColor && <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", backgroundColor: dotColor, flexShrink: 0 }} />}
       {data.label}
+      <Handle type="source" position={Position.Right} style={handleStyle} />
     </div>
   );
 }
