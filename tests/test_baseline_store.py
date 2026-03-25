@@ -325,3 +325,96 @@ async def test_get_history_registered_no_versions(client):
     body = resp.json()
     assert body["versions"] == []
     assert body["deltas"] == []
+
+
+# ── GET /baselines/{topic_path}/rollup ───────────────────────────────────────
+
+async def test_get_rollup_returns_descendants(client):
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value={"topic_path": "climate_change"})
+    conn.fetch = AsyncMock(return_value=[
+        {
+            "topic_path": "climate_change.energy",
+            "version_number": 3,
+            "narrative": "Energy baseline.",
+            "citations": "[]",
+            "created_at": "2026-03-25T09:00:00+00:00",
+        },
+    ])
+    pool = make_pool(conn)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)):
+        resp = await client.get("/baselines/climate_change/rollup")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ancestor"] == "climate_change"
+    assert len(body["descendants"]) == 1
+    # Ancestor itself must not be in descendants
+    assert all(d["topic_path"] != "climate_change" for d in body["descendants"])
+
+
+async def test_get_rollup_no_descendants(client):
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value={"topic_path": "climate_change"})
+    conn.fetch = AsyncMock(return_value=[])
+    pool = make_pool(conn)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)):
+        resp = await client.get("/baselines/climate_change/rollup")
+
+    assert resp.status_code == 200
+    assert resp.json()["descendants"] == []
+
+
+async def test_get_rollup_topic_not_registered(client):
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    pool = make_pool(conn)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)):
+        resp = await client.get("/baselines/nonexistent/rollup")
+
+    assert resp.status_code == 404
+
+
+# ── GET /baselines/similar ────────────────────────────────────────────────────
+
+async def test_get_similar_returns_ranked_results(client):
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[
+        {
+            "topic_path": "us_iran_conflict",
+            "version_number": 4,
+            "narrative": "Iran tensions elevated.",
+            "citations": "[]",
+            "score": 0.91,
+            "created_at": "2026-03-25T09:00:00+00:00",
+        },
+    ])
+    pool = make_pool(conn)
+    mock_embed = AsyncMock(return_value=[0.1] * 10)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)), \
+         patch("baseline_store.routes.get_embedder", return_value=mock_embed):
+        resp = await client.get("/baselines/similar", params={"query": "Iran nuclear", "limit": 3})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["results"]) == 1
+    assert body["results"][0]["score"] == 0.91
+    assert 0.0 <= body["results"][0]["score"] <= 1.0
+    mock_embed.assert_called_once_with("Iran nuclear")
+
+
+async def test_get_similar_embedder_called_once(client):
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+    pool = make_pool(conn)
+    mock_embed = AsyncMock(return_value=[0.1] * 10)
+
+    with patch("baseline_store.routes.get_pgvector_pool", AsyncMock(return_value=pool)), \
+         patch("baseline_store.routes.get_embedder", return_value=mock_embed):
+        await client.get("/baselines/similar", params={"query": "test query"})
+
+    mock_embed.assert_called_once_with("test query")

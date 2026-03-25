@@ -155,6 +155,35 @@ async def create_delta(topic_path: str, body: DeltaCreate):
     return dict(result)
 
 
+# ── IMPORTANT: /similar must be defined before /{topic_path} routes ──────────
+
+@router.get("/baselines/similar")
+async def similar_baselines(query: str, limit: int = 5):
+    pool = await get_pgvector_pool()
+    embed = get_embedder()
+    vector = await embed(query)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT topic_path::text, version_number, narrative, citations::text,
+                   1 - (embedding <=> $1::vector) AS score,
+                   created_at::text
+            FROM baseline_versions
+            ORDER BY embedding <=> $1::vector
+            LIMIT $2
+            """,
+            str(vector), limit,
+        )
+
+    def parse(r):
+        d = dict(r)
+        d["citations"] = json.loads(d["citations"])
+        return d
+
+    return {"results": [parse(r) for r in rows]}
+
+
 # ── Read endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/baselines/{topic_path}/current")
@@ -235,3 +264,35 @@ async def get_history(topic_path: str):
         "versions": [parse_version(r) for r in versions],
         "deltas": [parse_delta(r) for r in deltas],
     }
+
+
+@router.get("/baselines/{topic_path}/rollup")
+async def get_rollup(topic_path: str):
+    pool = await get_pgvector_pool()
+    async with pool.acquire() as conn:
+        topic = await conn.fetchrow(
+            "SELECT topic_path FROM baseline_topics WHERE topic_path = $1::ltree",
+            topic_path,
+        )
+        if topic is None:
+            raise HTTPException(status_code=404, detail=f"Topic not registered: {topic_path}")
+
+        # Fetch current version per descendant (topic_path strictly below ancestor)
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (v.topic_path)
+                v.topic_path::text, v.version_number, v.narrative, v.citations::text, v.created_at::text
+            FROM baseline_versions v
+            WHERE v.topic_path <@ $1::ltree
+              AND v.topic_path != $1::ltree
+            ORDER BY v.topic_path, v.version_number DESC
+            """,
+            topic_path,
+        )
+
+    def parse(r):
+        d = dict(r)
+        d["citations"] = json.loads(d["citations"])
+        return d
+
+    return {"ancestor": topic_path, "descendants": [parse(r) for r in rows]}
