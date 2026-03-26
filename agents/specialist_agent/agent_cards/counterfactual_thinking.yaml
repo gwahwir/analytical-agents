@@ -1,5 +1,6 @@
 name: Counterfactual Thinking Analyst
 description: Applies counterfactual reasoning to explore alternative scenarios and causal analysis
+category: theoretical_framework
 version: "0.1.0"
 
 system_prompt_file: counterfactual_thinking.md

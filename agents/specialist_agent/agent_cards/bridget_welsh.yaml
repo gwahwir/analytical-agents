@@ -1,5 +1,6 @@
 name: Bridget Welsh Political Analyst
 description: Applies Bridget Welsh's expertise in Malaysian electoral politics, ethnic voting patterns, and democratic transitions
+category: regional_voice
 version: "0.1.0"
 
 system_prompt_file: bridget_welsh.md

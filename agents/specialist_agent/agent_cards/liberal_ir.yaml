@@ -1,5 +1,6 @@
 name: Liberal IR Analyst
 description: Applies liberal international relations theory to analyze cooperation, institutions, and interdependence
+category: theoretical_framework
 version: "0.1.0"
 
 system_prompt_file: liberal_ir.md

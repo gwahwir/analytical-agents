@@ -1,9 +1,9 @@
-name: ASEAN Security Analyst
-description: Analyzes Southeast Asian security dynamics including maritime geography, hedging strategies, and regional order
-category: domain_specialist
+name: Black Swan Analyst
+description: Applies Nassim Taleb's Black Swan and antifragility framework to assess fragility, tail risks, and skin-in-the-game dynamics
+category: theoretical_framework
 version: "0.1.0"
 
-system_prompt_file: asean_security.md
+system_prompt_file: black_swan.md
 
 output_format: |
   Provide your analysis as JSON with this structure:
@@ -19,10 +19,10 @@ output_format: |
   Apply your theoretical framework rigorously. Be specific and evidence-based.
 
 skills:
-  - id: asean-security-analysis
-    name: ASEAN Security Analysis
-    description: Analyzes Southeast Asian regional dynamics, ASEAN centrality, and maritime security
-    tags: [specialist, analysis, asean, southeast-asia, maritime]
+  - id: black-swan-analysis
+    name: Black Swan & Antifragility Analysis
+    description: Analyzes scenarios for tail risks, fragility, and Black Swan events using Taleb's framework
+    tags: [specialist, analysis, black-swan, antifragile, tail-risk, taleb]
 
 input_fields:
   - name: text

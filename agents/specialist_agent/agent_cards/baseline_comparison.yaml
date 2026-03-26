@@ -1,5 +1,6 @@
 name: Baseline Comparison Analyst
 description: Compares current analysis with baseline assessments to detect changes, confirmations, and updates
+category: meta_tool
 version: "0.1.0"
 
 system_prompt_file: baseline_comparison.md

@@ -147,4 +147,4 @@ After creating both files:
 ## Existing Agents (avoid duplicates)
 
 Check `agents/specialist_agent/agent_cards/` before creating — these already exist:
-ach_red_team, asean_security, behavioral_economics, bilahari_kausikan, bridget_welsh, copenhagen_securitization, counterfactual_thinking, liberal_ir, military_strategy_deterrence, peripheral_scan, realist_ir, taleb_antifragile, technology_emerging_threats, yergin_energy
+ach_red_team, asean_security, behavioral_economics, bilahari_kausikan, bridget_welsh, copenhagen_securitization, counterfactual_thinking, liberal_ir, military_strategy_deterrence, peripheral_scan, realist_ir, black_swan, technology_emerging_threats, yergin_energy

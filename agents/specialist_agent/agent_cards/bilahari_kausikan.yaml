@@ -1,5 +1,6 @@
 name: Bilahari Kausikan Analyst
 description: Applies Bilahari Kausikan's small state strategy and clinical realism to geopolitical analysis
+category: regional_voice
 version: "0.1.0"
 
 system_prompt_file: bilahari_kausikan.md

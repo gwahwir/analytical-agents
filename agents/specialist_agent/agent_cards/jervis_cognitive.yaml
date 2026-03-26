@@ -1,8 +1,9 @@
-name: Taleb Antifragile Analyst
-description: Applies Nassim Taleb's antifragility framework to assess fragility, tail risks, and skin-in-the-game dynamics
+name: Jervis Cognitive Analyst
+description: Applies Robert Jervis's perception and misperception framework to analyze spiral dynamics, signaling failures, and cognitive traps in international conflict
+category: theoretical_framework
 version: "0.1.0"
 
-system_prompt_file: taleb_antifragile.md
+system_prompt_file: jervis_cognitive.md
 
 output_format: |
   Provide your analysis as JSON with this structure:
@@ -18,10 +19,10 @@ output_format: |
   Apply your theoretical framework rigorously. Be specific and evidence-based.
 
 skills:
-  - id: taleb-antifragile-analysis
-    name: Antifragile Analysis
-    description: Analyzes scenarios for fragility and tail risks using Taleb's framework
-    tags: [specialist, analysis, antifragile, risk, taleb]
+  - id: jervis-cognitive-analysis
+    name: Perception & Misperception Analysis
+    description: Analyzes scenarios for misperception, spiral dynamics, signaling failures, and security dilemmas
+    tags: [specialist, analysis, perception, misperception, spiral-model, security-dilemma]
 
 input_fields:
   - name: text

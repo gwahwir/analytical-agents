@@ -15,7 +15,7 @@ specialist_agent/
 │   ├── code_reviewer.yaml
 │   └── ... (14 analytical framework agents)
 └── prompts/           # External .md prompt files for large system prompts
-    ├── taleb_antifragile.md
+    ├── black_swan.md
     ├── realist_ir.md
     └── ... (14 analytical framework prompts)
 ```
@@ -34,6 +34,7 @@ Each YAML file produces an independent A2A agent with its own:
 type_id: code-reviewer              # sub-path & control plane type ID (derived from filename if omitted)
 name: Code Reviewer Agent           # required
 description: Reviews code for quality and bugs
+category: theoretical_framework     # optional: theoretical_framework, domain_specialist, regional_voice, meta_tool
 version: "0.1.0"                    # optional, default "0.1.0"
 
 skills:                             # optional
@@ -82,9 +83,45 @@ max_completion_tokens: 1024                    # optional, default 1024
 
 The `type_id` is derived from the filename if not specified (`my_agent.yaml` → `my-agent`).
 
-### Analytical Framework Agents
+### Specialist Agent Categories
 
-The specialist agent hosts 14 analytical framework agents (Taleb Antifragile, Realist IR, Behavioral Economics, etc.) defined via YAML configs that reference external `.md` prompt files in `prompts/`. Each produces structured JSON analysis output via the `output_format` field. These agents use `max_completion_tokens: 4096` for detailed analytical responses.
+The specialist agent hosts 22 specialist agents organized into 4 categories:
+
+#### 1. Theoretical Frameworks (11 agents)
+Core IR theories and analytical frameworks for understanding conflict and international relations:
+- **realist_ir** - Power politics, security dilemmas, balance of power
+- **liberal_ir** - Institutions, cooperation, interdependence
+- **copenhagen_securitization** - Security discourse, speech acts
+- **jervis_cognitive** - Perception/misperception, spiral dynamics
+- **schelling_bargaining** - Game theory, coercive diplomacy, escalation ladders
+- **putnam_domestic** - Two-level games, domestic constraints
+- **snyder_alliance** - Entrapment-abandonment, coalition cohesion
+- **qiao_wang_unrestricted** - Multi-domain warfare, asymmetric strategy
+- **behavioral_economics** - Cognitive biases, Prospect Theory
+- **black_swan** - Tail risks, fragility, antifragility
+- **counterfactual_thinking** - Alternative scenarios, causal analysis
+
+#### 2. Domain Specialists (6 agents)
+Subject matter experts in specific security/policy domains:
+- **economic_statecraft** - Sanctions, weaponized interdependence
+- **climate_security** - Threat multiplication, nexus thinking
+- **technology_emerging_threats** - Cyber, AI, space, disinformation
+- **military_strategy_deterrence** - Clausewitzian analysis, deterrence
+- **yergin_energy** - Energy security, resource geopolitics
+- **asean_security** - Southeast Asian maritime and regional dynamics
+
+#### 3. Regional/Individual Perspectives (2 agents)
+Specific geographic or expert viewpoints:
+- **bilahari_kausikan** - Small state strategy (Singapore perspective)
+- **bridget_welsh** - Malaysian electoral politics
+
+#### 4. Meta-Analysis Tools (3 agents)
+Quality assurance and blind spot detection:
+- **ach_red_team** - Alternative hypotheses, assumption challenging
+- **peripheral_scan** - Overlooked signals, blind spot detection
+- **baseline_comparison** - Historical/baseline pattern comparison
+
+All agents are defined via YAML configs in `agent_cards/` that reference external `.md` prompt files in `prompts/`. Each produces structured JSON analysis output via the `output_format` field and uses `max_completion_tokens: 4096` for detailed analytical responses. Each agent includes a `category` field for organizational purposes.
 
 ## Running
 

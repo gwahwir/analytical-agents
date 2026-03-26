@@ -1,9 +1,9 @@
-name: ASEAN Security Analyst
-description: Analyzes Southeast Asian security dynamics including maritime geography, hedging strategies, and regional order
-category: domain_specialist
+name: Snyder Alliance Analyst
+description: Applies Glenn Snyder's alliance theory to analyze entrapment-abandonment dynamics, coalition cohesion, and patron-client relationships
+category: theoretical_framework
 version: "0.1.0"
 
-system_prompt_file: asean_security.md
+system_prompt_file: snyder_alliance.md
 
 output_format: |
   Provide your analysis as JSON with this structure:
@@ -19,10 +19,10 @@ output_format: |
   Apply your theoretical framework rigorously. Be specific and evidence-based.
 
 skills:
-  - id: asean-security-analysis
-    name: ASEAN Security Analysis
-    description: Analyzes Southeast Asian regional dynamics, ASEAN centrality, and maritime security
-    tags: [specialist, analysis, asean, southeast-asia, maritime]
+  - id: snyder-alliance-analysis
+    name: Alliance Dynamics Analysis
+    description: Analyzes scenarios through entrapment-abandonment dilemmas, coalition cohesion, and alliance security trade-offs
+    tags: [specialist, analysis, alliance-theory, entrapment, abandonment, coalition]
 
 input_fields:
   - name: text

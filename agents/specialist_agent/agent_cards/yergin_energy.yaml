@@ -1,5 +1,6 @@
 name: Yergin Energy Geopolitics Analyst
 description: Applies Daniel Yergin's energy security and resource geopolitics frameworks
+category: domain_specialist
 version: "0.1.0"
 
 system_prompt_file: yergin_energy.md

@@ -1,9 +1,9 @@
-name: ASEAN Security Analyst
-description: Analyzes Southeast Asian security dynamics including maritime geography, hedging strategies, and regional order
-category: domain_specialist
+name: Schelling Bargaining Strategist
+description: Applies Thomas Schelling's game theory and coercive diplomacy frameworks to analyze brinkmanship, escalation ladders, and strategic signaling
+category: theoretical_framework
 version: "0.1.0"
 
-system_prompt_file: asean_security.md
+system_prompt_file: schelling_bargaining.md
 
 output_format: |
   Provide your analysis as JSON with this structure:
@@ -19,10 +19,10 @@ output_format: |
   Apply your theoretical framework rigorously. Be specific and evidence-based.
 
 skills:
-  - id: asean-security-analysis
-    name: ASEAN Security Analysis
-    description: Analyzes Southeast Asian regional dynamics, ASEAN centrality, and maritime security
-    tags: [specialist, analysis, asean, southeast-asia, maritime]
+  - id: schelling-bargaining-analysis
+    name: Bargaining & Coercive Diplomacy Analysis
+    description: Analyzes scenarios through game theory, commitment problems, escalation dominance, and strategic signaling
+    tags: [specialist, analysis, game-theory, bargaining, coercive-diplomacy, escalation]
 
 input_fields:
   - name: text

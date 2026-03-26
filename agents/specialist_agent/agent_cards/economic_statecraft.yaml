@@ -1,5 +1,6 @@
 name: Economic Statecraft Analyst
 description: Applies economic statecraft, weaponized interdependence, sanctions, and development finance frameworks to analyze geopolitical-economic scenarios
+category: domain_specialist
 version: "0.1.0"
 
 system_prompt_file: economic_statecraft.md

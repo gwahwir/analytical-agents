@@ -1,9 +1,9 @@
-name: ASEAN Security Analyst
-description: Analyzes Southeast Asian security dynamics including maritime geography, hedging strategies, and regional order
-category: domain_specialist
+name: Qiao-Wang Unrestricted Warfare Analyst
+description: Applies Qiao Liang and Wang Xiangsui's unrestricted warfare framework to analyze multi-domain operations, asymmetric strategy, and cross-domain attack vectors
+category: theoretical_framework
 version: "0.1.0"
 
-system_prompt_file: asean_security.md
+system_prompt_file: qiao_wang_unrestricted.md
 
 output_format: |
   Provide your analysis as JSON with this structure:
@@ -19,10 +19,10 @@ output_format: |
   Apply your theoretical framework rigorously. Be specific and evidence-based.
 
 skills:
-  - id: asean-security-analysis
-    name: ASEAN Security Analysis
-    description: Analyzes Southeast Asian regional dynamics, ASEAN centrality, and maritime security
-    tags: [specialist, analysis, asean, southeast-asia, maritime]
+  - id: qiao-wang-unrestricted-analysis
+    name: Unrestricted Warfare Analysis
+    description: Analyzes scenarios through multi-domain warfare, asymmetric cost ratios, lawfare, and cross-domain coordination
+    tags: [specialist, analysis, unrestricted-warfare, multi-domain, asymmetric, lawfare]
 
 input_fields:
   - name: text
