@@ -135,3 +135,61 @@ def print_plan_summary(plan: dict[str, Any]) -> None:
             snippet = v["narrative"][:80].replace("\n", " ")
             print(f"    v{i}: {snippet}...")
     print()
+
+
+async def write_plan(plan: dict[str, Any], baseline_url: str) -> tuple[int, int]:
+    """Write plan to baseline store. Returns (topics_written, versions_written)."""
+    base = baseline_url.rstrip("/")
+    topics_written = 0
+    versions_written = 0
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for topic in plan["topics"]:
+            path = topic["topic_path"]
+            display = topic["display_name"]
+
+            # Register topic
+            r = await client.post(
+                f"{base}/topics",
+                json={"topic_path": path, "display_name": display},
+            )
+            if r.status_code == 409:
+                print(f"  [skip] Topic already exists: {path}")
+            elif r.status_code != 201:
+                print(f"  [error] POST /topics {path}: {r.status_code} {r.text}", file=sys.stderr)
+                sys.exit(1)
+            else:
+                print(f"  [ok] Registered topic: {path}")
+                topics_written += 1
+
+            # Write versions and deltas in order
+            prev_version_number: int | None = None
+            for i, v in enumerate(topic["versions"]):
+                # POST version
+                r = await client.post(
+                    f"{base}/baselines/{path}/versions",
+                    json={"narrative": v["narrative"], "citations": v["citations"]},
+                )
+                if r.status_code != 201:
+                    print(
+                        f"  [error] POST /versions {path} entry {i}: {r.status_code} {r.text}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                version_number: int = r.json()["version_number"]
+                print(f"    [ok] Version {version_number} written for {path}")
+                versions_written += 1
+
+                # POST delta
+                delta_body = build_delta_body(v, from_version=prev_version_number, to_version=version_number)
+                r = await client.post(f"{base}/baselines/{path}/deltas", json=delta_body)
+                if r.status_code != 201:
+                    print(
+                        f"  [error] POST /deltas {path} v{version_number}: {r.status_code} {r.text}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                print(f"    [ok] Delta written for {path} v{version_number}")
+                prev_version_number = version_number
+
+    return topics_written, versions_written
