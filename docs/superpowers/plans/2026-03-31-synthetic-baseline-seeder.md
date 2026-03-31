@@ -1,3 +1,97 @@
+# Synthetic Baseline Seeder Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a CLI script that takes a seed paragraph, calls OpenAI to generate a complete fictitious baseline hierarchy (topics + versions + deltas), and writes it to the baseline store via async httpx.
+
+**Architecture:** Single-call LLM approach — one OpenAI call returns the full JSON plan (topics ordered parents-first, each with N versions and inline delta fields). The script then sequentially writes each topic, version, and delta to the baseline store REST API.
+
+**Tech Stack:** Python, `openai` (async), `httpx` (async), `argparse`, `asyncio`
+
+---
+
+## File Structure
+
+| Path | Action | Responsibility |
+|---|---|---|
+| `scripts_for_testing/generate_synthetic_baselines.py` | Create | Full script: CLI, prompt builder, LLM call, HTTP writes |
+| `tests/test_generate_synthetic_baselines.py` | Create | Unit tests for pure functions (prompt builder, delta body builder) |
+
+---
+
+### Task 1: CLI scaffold and prompt builder
+
+**Files:**
+- Create: `scripts_for_testing/generate_synthetic_baselines.py`
+- Create: `tests/test_generate_synthetic_baselines.py`
+
+- [ ] **Step 1: Write failing tests for `parse_args` and `build_prompt`**
+
+Create `tests/test_generate_synthetic_baselines.py`:
+
+```python
+import sys
+import pytest
+
+
+def test_build_prompt_contains_seed():
+    from scripts_for_testing.generate_synthetic_baselines import build_prompt
+    seed = "US-China trade war escalates over semiconductor tariffs."
+    prompt = build_prompt(seed, n_topics=3, n_versions=2)
+    assert seed in prompt
+    assert "3" in prompt
+    assert "2" in prompt
+
+
+def test_build_prompt_returns_string():
+    from scripts_for_testing.generate_synthetic_baselines import build_prompt
+    result = build_prompt("some seed", n_topics=2, n_versions=1)
+    assert isinstance(result, str)
+    assert len(result) > 100
+
+
+def test_build_delta_body_first_version():
+    from scripts_for_testing.generate_synthetic_baselines import build_delta_body
+    version_entry = {
+        "delta_summary": "Initial baseline established.",
+        "claims_added": ["Claim A"],
+        "claims_superseded": [],
+    }
+    body = build_delta_body(version_entry, from_version=None, to_version=1)
+    assert body["from_version"] is None
+    assert body["to_version"] == 1
+    assert body["delta_summary"] == "Initial baseline established."
+    assert body["claims_added"] == ["Claim A"]
+    assert body["claims_superseded"] == []
+    assert body["article_metadata"] == {}
+
+
+def test_build_delta_body_subsequent_version():
+    from scripts_for_testing.generate_synthetic_baselines import build_delta_body
+    version_entry = {
+        "delta_summary": "Iran resumed talks.",
+        "claims_added": ["New claim"],
+        "claims_superseded": ["Old claim"],
+    }
+    body = build_delta_body(version_entry, from_version=1, to_version=2)
+    assert body["from_version"] == 1
+    assert body["to_version"] == 2
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+```bash
+cd C:/Projects/mission-control
+pytest tests/test_generate_synthetic_baselines.py -v
+```
+
+Expected: `ImportError` — module does not exist yet.
+
+- [ ] **Step 3: Create the script with CLI and pure functions**
+
+Create `scripts_for_testing/generate_synthetic_baselines.py`:
+
+```python
 #!/usr/bin/env python
 """Generate synthetic baseline data from a seed paragraph and populate the baseline store.
 
@@ -111,13 +205,38 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print generated plan without writing to the store",
     )
-    parser.add_argument("--openai_base_url", default="https://openrouter.ai/api/v1", help="OpenAI Base URL")
-    parser.add_argument("--openai_api_key", help="OpenAI API Key")
     return parser.parse_args()
+```
 
+- [ ] **Step 4: Run tests to verify they pass**
 
-async def generate_plan(seed: str, n_topics: int, n_versions: int, model: str, args) -> dict[str, Any]:
-    client = AsyncOpenAI(api_key=args.openai_api_key, base_url=args.openai_base_url)
+```bash
+pytest tests/test_generate_synthetic_baselines.py -v
+```
+
+Expected: all 4 tests PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts_for_testing/generate_synthetic_baselines.py tests/test_generate_synthetic_baselines.py
+git commit -m "feat: scaffold synthetic baseline seeder CLI and pure helpers"
+```
+
+---
+
+### Task 2: LLM call and plan summary printer
+
+**Files:**
+- Modify: `scripts_for_testing/generate_synthetic_baselines.py`
+
+- [ ] **Step 1: Add `generate_plan` and `print_plan_summary` functions**
+
+Append to `scripts_for_testing/generate_synthetic_baselines.py` (before the `if __name__ == "__main__"` block — which doesn't exist yet):
+
+```python
+async def generate_plan(seed: str, n_topics: int, n_versions: int, model: str) -> dict[str, Any]:
+    client = AsyncOpenAI()
     prompt = build_prompt(seed, n_topics, n_versions)
     response = await client.chat.completions.create(
         model=model,
@@ -137,8 +256,35 @@ def print_plan_summary(plan: dict[str, Any]) -> None:
             snippet = v["narrative"][:80].replace("\n", " ")
             print(f"    v{i}: {snippet}...")
     print()
+```
 
+- [ ] **Step 2: Run existing tests to confirm nothing broke**
 
+```bash
+pytest tests/test_generate_synthetic_baselines.py -v
+```
+
+Expected: all 4 tests PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts_for_testing/generate_synthetic_baselines.py
+git commit -m "feat: add LLM call and plan summary printer to baseline seeder"
+```
+
+---
+
+### Task 3: HTTP write sequence
+
+**Files:**
+- Modify: `scripts_for_testing/generate_synthetic_baselines.py`
+
+- [ ] **Step 1: Add `write_plan` function**
+
+Append to `scripts_for_testing/generate_synthetic_baselines.py`:
+
+```python
 async def write_plan(plan: dict[str, Any], baseline_url: str) -> tuple[int, int]:
     """Write plan to baseline store. Returns (topics_written, versions_written)."""
     base = baseline_url.rstrip("/")
@@ -195,8 +341,35 @@ async def write_plan(plan: dict[str, Any], baseline_url: str) -> tuple[int, int]
                 prev_version_number = version_number
 
     return topics_written, versions_written
+```
 
+- [ ] **Step 2: Run existing tests to confirm nothing broke**
 
+```bash
+pytest tests/test_generate_synthetic_baselines.py -v
+```
+
+Expected: all 4 tests PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts_for_testing/generate_synthetic_baselines.py
+git commit -m "feat: add HTTP write sequence to baseline seeder"
+```
+
+---
+
+### Task 4: Wire `main()` and smoke test
+
+**Files:**
+- Modify: `scripts_for_testing/generate_synthetic_baselines.py`
+
+- [ ] **Step 1: Append `main()` and entry point**
+
+Append to the end of `scripts_for_testing/generate_synthetic_baselines.py`:
+
+```python
 async def main() -> None:
     args = parse_args()
 
@@ -211,7 +384,7 @@ async def main() -> None:
         sys.exit(1)
 
     print(f"Generating plan from seed ({len(seed)} chars) using {args.model}...")
-    plan = await generate_plan(seed, args.topics, args.versions_per_topic, args.model, args)
+    plan = await generate_plan(seed, args.topics, args.versions_per_topic, args.model)
     print_plan_summary(plan)
 
     if args.dry_run:
@@ -225,3 +398,44 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
+
+- [ ] **Step 2: Run all tests**
+
+```bash
+pytest tests/test_generate_synthetic_baselines.py -v
+```
+
+Expected: all 4 tests PASS.
+
+- [ ] **Step 3: Smoke test with --dry-run (requires OPENAI_API_KEY)**
+
+```bash
+cd C:/Projects/mission-control
+python scripts_for_testing/generate_synthetic_baselines.py \
+  --seed "Iran nuclear negotiations remain stalled as enrichment levels approach 60% purity at Fordow." \
+  --topics 3 \
+  --versions-per-topic 2 \
+  --dry-run
+```
+
+Expected output:
+```
+Generating plan from seed (87 chars) using gpt-4o-mini...
+
+Generated plan: 4 topic(s)
+  geo.middle_east (Middle East) — 2 version(s)
+    v1: ...
+    v2: ...
+  geo.middle_east.iran (Iran) — 2 version(s)
+  ...
+
+[dry-run] Skipping writes.
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add scripts_for_testing/generate_synthetic_baselines.py
+git commit -m "feat: add main() entry point to synthetic baseline seeder"
+```
