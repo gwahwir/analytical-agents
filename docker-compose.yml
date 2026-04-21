@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: mc
       POSTGRES_PASSWORD: mc_password
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -25,7 +25,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     networks:
       - mc-net
     healthcheck:
@@ -45,8 +45,8 @@ services:
     environment:
       - NEO4J_AUTH=neo4j/mc_password
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "7475:7474"
+      - "7688:7687"
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
@@ -83,7 +83,7 @@ services:
       context: .
       dockerfile: Dockerfile.control-plane
     ports:
-      - "8000:8000"
+      - "9000:8000"
     environment:
       - LOG_LEVEL=INFO
       - DATABASE_URL=postgresql://mc:mc_password@postgres:5432/missioncontrol
@@ -109,7 +109,7 @@ services:
       context: .
       dockerfile: Dockerfile.relevancy
     ports:
-      - "8003:8003"
+      - "9003:8003"
     environment:
       - LOG_LEVEL=INFO
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -136,7 +136,7 @@ services:
       context: .
       dockerfile: Dockerfile.lead-analyst
     ports:
-      - "8005:8005"
+      - "9005:8005"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -163,7 +163,7 @@ services:
       context: .
       dockerfile: Dockerfile.specialist
     ports:
-      - "8006:8006"
+      - "9006:8006"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -190,7 +190,7 @@ services:
       context: .
       dockerfile: Dockerfile.probability
     ports:
-      - "8007:8007"
+      - "9007:8007"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -217,7 +217,7 @@ services:
       context: .
       dockerfile: Dockerfile.knowledge-graph
     ports:
-      - "8008:8008"
+      - "9008:8008"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -252,7 +252,7 @@ services:
       context: .
       dockerfile: Dockerfile.memory-agent
     ports:
-      - "8009:8009"
+      - "9009:8009"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -289,7 +289,7 @@ services:
       context: .
       dockerfile: Dockerfile.baseline-store
     ports:
-      - "8010:8010"
+      - "9010:8010"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -317,7 +317,7 @@ services:
       context: .
       dockerfile: Dockerfile.wiki_agent
     ports:
-      - "8011:8011"
+      - "9011:8011"
     env_file: ".env"
     environment:
       - LOG_LEVEL=INFO
@@ -345,7 +345,7 @@ services:
       dockerfile: Dockerfile
     env_file: ".env"
     ports:
-      - "3000:80"
+      - "3001:80"
     networks:
       - mc-net
     depends_on:
